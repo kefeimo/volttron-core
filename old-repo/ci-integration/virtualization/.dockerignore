@@ -1,6 +1,0 @@
-.git
-.github
-env/*
-volttron.egg-info/
-*.pyc
-*__pycache__*

@@ -1,9 +1,0 @@
-{
-    "connection": {
-        "type": "crate",
-        "schema": "testing",
-        "params": {
-            "host": "localhost:4200"
-        }
-    }
-}

@@ -1,5 +1,0 @@
-{
-    "schedule_publish_interval": 30,
-    "heartbeat_interval": 20,
-    "preempt_grace_time": 30
-}
