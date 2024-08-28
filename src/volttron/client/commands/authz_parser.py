@@ -1,4 +1,5 @@
 import argparse
+import volttron.types.auth.authz_types as authz
 
 
 def add_rpc_authorization(opts: argparse.Namespace):
@@ -85,6 +86,24 @@ def add_authz_parser(add_parser_fn, filterable):
     :type add_parser_fn: Callable
     :param filterable: A filter function for filtering the results of the command
     :type filterable: Callable
+    
+    EXAMPLE:
+    vctl authz -h
+    usage: vctl command [OPTIONS] ... authz [-h] [--debug] [-t SECS] [--address ADDR]  ...
+
+    options:
+    -h, --help            show this help message and exit
+    --debug               show tracebacks for errors rather than a brief message
+    -t SECS, --timeout SECS
+                            timeout in seconds for remote calls (default: 60)
+    --address ADDR        URL to bind for VIP connections
+
+    rpc Capability:
+    
+        add                 Add rpc method authorization
+        remove              Remove rpc method authorization
+        list                List authorized rpc methods.
+        clear               Clear authorized rpc methods.
     """
 
     # TODO: Verify that the filterable makes sense for the authz command.
@@ -92,28 +111,321 @@ def add_authz_parser(add_parser_fn, filterable):
     authz_commands = add_parser_fn("authz",
                                    help="Manage authorization for rpc methods and pubsub topics")
 
-    rpc_parser = authz_commands.add_subparsers(title="rpc", metavar="", dest="store_commands")
+    rpc_parser = authz_commands.add_subparsers(title="rpc Capability", metavar="", dest="store_commands")
 
+
+    ### ADD parser
     add_authz_method = add_parser_fn("add",
                                      subparser=rpc_parser,
                                      help="Add rpc method authorization")
-    add_authz_method.add_argument(
-        "identity_and_method",
-        nargs="*",
-        help="Add rpc authorization to an agent.  Format is 'identity.method_name'")
-    add_authz_method.set_defaults(func=add_rpc_authorization)
+    # add_authz_method.add_argument(
+    #     "identity_and_method",
+    #     nargs="*",
+    #     help="Add rpc authorization to an agent.  Format is 'identity.method_name'")
+    # add_authz_method.set_defaults(func=add_rpc_authorization)
+    
+    
+    # # Create subparser for 'capabilities' under 'add'
+    # capabilities_parser = add_authz_method.add_subparsers(title="capabilities", metavar="", dest="capability_command")
 
+    # # Add a command under 'capabilities'
+    # add_capabilities_command = capabilities_parser.add_parser("capabilities", help="Add capabilities to authorization")
+    # add_capabilities_command.set_defaults(func=dummy_func)
+    # add_capabilities_command.add_argument("details", nargs="*", help="Details for the capabilities")
+    
+    add_authz_method.add_argument("identity_and_method", nargs="*", help="Format: 'identity.method_name', 'identity2.method_name2'")  # TODO: confirm behavior
+    add_authz_method.add_argument("--capabilities", "-cap", nargs="*", help="Specify capabilities to add")
+    
+    # Set the default function to handle the command
+    add_authz_method.set_defaults(func=handel_authz_add_args)
+
+
+    ### REMOVE parser
     remove_authz_method = add_parser_fn(
         "remove",
         subparser=rpc_parser,
-        help="Remove rpc method authorization, format is identity.method_name")
+        help="Remove rpc method authorization")
     remove_authz_method.add_argument(
         "identity_and_method",
         nargs="*",
-        help="Remove rpc authorization to an agent.  Format is 'identity.method_name'")
-    remove_authz_method.set_defaults(func=remove_agent_rpc_authorization)
+        help="Format: 'identity.method_name', 'identity2.method_name2'")
+    remove_authz_method.add_argument("--capabilities", "-cap", nargs="*", help="Specify capabilities to remove")
+    remove_authz_method.set_defaults(func=handel_authz_remove_args)
 
+    ### LIST parser
     list_authz_method = add_parser_fn("list",
                                       subparser=rpc_parser,
                                       help="List authorized rpc methods.")
-    #list_authz_method.set_defaults(func=print_rpc_authorizations)
+    list_authz_method.add_argument("--capabilities", "-cap", action="store_true", help="List capabilities")
+    list_authz_method.set_defaults(func=handel_authz_list_args)
+    
+    ### CLEAR parser
+    clear_authz_method = add_parser_fn("clear",
+                                      subparser=rpc_parser,
+                                      help="Clear authorized rpc methods.")
+    clear_authz_method.add_argument("--capabilities", "-cap", action="store_true", help="Clear capabilities")
+    clear_authz_method.set_defaults(func=handel_authz_clear_args)
+
+
+def dummy_func(opts):
+    return "dummy funct"
+
+def handel_authz_add_args(args):
+    """Function to handle `vctl authz add ` argument."""
+    if args.capabilities:
+        return add_rpc_capabilities(args.capabilities)
+    else:
+        print("No capabilities provided.")
+        
+def handel_authz_remove_args(args):
+    """Function to handle `vctl authz remove ` argument."""
+    if args.capabilities:
+        return remove_rpc_capabilities(args.capabilities)
+    else:
+        print("No capabilities provided.")
+
+def handel_authz_list_args(args):
+    """Function to handle `vctl authz list ` argument."""
+    if args.capabilities:
+        return print_authz_list_capabilities()
+    else:
+        pass
+    
+def handel_authz_clear_args(args):
+    """Function to handle `vctl authz clear ` argument."""
+    if args.capabilities:
+        return clear_rpc_capabilities()
+    else:
+        pass
+        
+
+### Place-holder for Auth Servers
+# add_rpc_capabilities logic (w persistent capabilities_obj)
+import ast
+
+# FILE_PATH = "/home/kefei/project/volttron-modular/capbilities_rpc_dict_str.txt"
+FILE_PATH = "capbilities_rpc_dict_str.txt"
+
+def parse_input_to_list(user_input):
+    """
+    Parses a string containing elements separated by common delimiters
+    (spaces, commas, semicolons) into a list of strings.
+
+    Parameters:
+    - user_input (str): A string input from the user.
+
+    Returns:
+    - List[str]: A list of strings extracted from the input.
+
+    Examples:
+    >>> parse_input_to_list("apple banana mango")
+    ['apple', 'banana', 'mango']
+
+    >>> parse_input_to_list("red, green, blue")
+    ['red', 'green', 'blue']
+
+    >>> parse_input_to_list("first; second; third")
+    ['first', 'second', 'third']
+
+    >>> parse_input_to_list("python; javascript, ruby c++")
+    ['python', 'javascript', 'ruby', 'c++']
+
+    >>> parse_input_to_list("  data science, machine learning; artificial intelligence   deep learning ")
+    ['data', 'science', 'machine', 'learning', 'artificial', 'intelligence', 'deep', 'learning']
+
+    >>> parse_input_to_list(",; , ;")
+    []
+
+    """
+    import re
+    # Split on any sequence of space, comma, or semicolon
+    tokens = re.split(r'[ ,;]+', user_input.strip())
+    # Filter out empty strings if any remain after splitting
+    return [token for token in tokens if token]
+    
+
+def load_file(file_path: str):
+    """
+    Reads the content of a local file and returns it as a string.
+    If the file does not exist, creates an empty file at the specified path.
+
+    Args:
+    file_path (str): The path to the file to be read.
+
+    Returns:
+    str: The content of the file, or an empty string if the file was just created.
+    """
+    try:
+        with open(file_path, 'r') as file:
+            return file.read()
+    except FileNotFoundError:
+        with open(file_path, 'w') as file:  # Create an empty file if not found
+            pass
+        return ""  # Return an empty string as the file is empty
+    except Exception as e:
+        return str(e)
+
+def save_to_file(content: str, file_path: str):
+    """
+    Writes a given string to a specified local file.
+
+    Args:
+    content (str): The string to be written to the file.
+    file_path (str): The path to the file where the content will be saved.
+
+    Returns:
+    str: Confirmation message indicating success or failure.
+    """
+    try:
+        with open(file_path, 'w') as file:
+            file.write(content)
+        return "Content saved successfully."
+    except Exception as e:
+        return str(e)
+    
+def unstructure_rev(unstructured: str) -> authz.RPCCapabilities:
+    python_obj: List[str] | str = ast.literal_eval(unstructured)
+    # if type(python_obj) is not list:
+    #     capabilities_to_add = [python_obj] 
+    caps = authz.RPCCapabilities()
+    for cap_arg in python_obj:
+        caps.add_rpc_capability(authz.RPCCapability(cap_arg))
+    return caps
+    
+def clear_rpc_capabilities():
+    """
+    Helper function to clear all capabilities in the RPCCapabilities instance.
+    """    
+    # persist obj: save
+    save_to_file(content="", file_path=FILE_PATH) 
+    return "Cleared capabilities."
+
+def add_rpc_capabilities(capabilities_to_add_arg: str) -> authz.RPCCapabilities:
+    """
+    Helper function to add capabilities to (existing) RPCCapabilities instance, 
+    Take str as input, in the format of (after eval) List[str], e.g., id1.rpc1"""
+    # persist obj: load
+    capabilities_arg: str = load_file(FILE_PATH)
+    
+    if not capabilities_arg:
+        capabilities_obj = authz.RPCCapabilities()
+    else:
+        capabilities_obj = unstructure_rev(capabilities_arg)
+    # print(f"{capabilities_to_add_arg}")
+    # capabilities_to_add_arg_obj = parse_input_to_list(capabilities_to_add_arg)
+    capabilities_to_add_arg_obj = capabilities_to_add_arg
+    # f"========={type(capabilities_to_add_arg_obj)=}"
+    if type(capabilities_to_add_arg_obj) is not list:
+        capabilities_to_add_arg_obj = [capabilities_to_add_arg_obj] 
+    # TODO: add type check here. Currrently the type is not well defined.
+    for cap_arg in capabilities_to_add_arg_obj:
+        capabilities_obj.add_rpc_capability(authz.RPCCapability(cap_arg))
+    
+    # persist obj: save
+    save_to_file(content=str(capabilities_obj._rpc_dict), file_path=FILE_PATH) 
+    
+    return f"Updated Capabilities to: {capabilities_obj._rpc_dict}."
+
+# clear_rpc_capabilities()
+# add_str = "[]"
+# print(f"{add_rpc_capabilities(add_str)=}")
+# add_str = "['id.rpc1', 'id2.rpc2']"
+# print(f"{add_rpc_capabilities(add_str)=}")
+# add_str = "['id3.rpc3', 'id4.rpc4']"
+# print(f"{add_rpc_capabilities(add_str)=}")
+
+# Remove logic
+def remove_rpc_capabilities(capabilities_to_remove_arg: str) -> authz.RPCCapabilities:
+    """
+    Helper function to remove capabilities to (existing) RPCCapabilities instance, 
+    Take str as input, in the format of (after eval) List[str], e.g., `["id1.rpc1", "id2.rpc2"]`. """
+    # persist obj: load
+    capabilities_arg: str = load_file(FILE_PATH)
+    
+    if not capabilities_arg:
+        capabilities_obj = authz.RPCCapabilities()
+    else:
+        capabilities_obj = unstructure_rev(capabilities_arg)
+    # capabilities_to_remove_arg_obj = ast.literal_eval(capabilities_to_remove_arg)
+    capabilities_to_remove_arg_obj = capabilities_to_remove_arg
+    # f"========={type(capabilities_to_add_arg_obj)=}"
+    if type(capabilities_to_remove_arg) is not list:
+        capabilities_to_remove_arg = [capabilities_to_remove_arg] 
+    # TODO: add type check here. Currrently the type is not well defined.
+    for cap_arg in capabilities_to_remove_arg_obj:
+        capabilities_obj.remove_rpc_capability(authz.RPCCapability(cap_arg))
+    # persist obj: save
+    # print(f"========={capabilities_obj=}")
+    save_to_file(content=str(capabilities_obj._rpc_dict), file_path=FILE_PATH) 
+    
+    return f"Updated Capabilities to: {capabilities_obj._rpc_dict}."
+
+# clear_rpc_capabilities()
+# add_str = "[]"
+# print(f"{add_rpc_capabilities(add_str)=}")
+# add_str = "['id.rpc1', 'id2.rpc2', 'id3.rpc3', 'id4.rpc4']"
+# print(f"{add_rpc_capabilities(add_str)=}")
+# remove_str = "['id3.rpc3']"
+# print(f"{remove_rpc_capabilities(remove_str)=}")
+
+# list logic
+def list_rpc_capabilities() -> authz.RPCCapabilities:
+    """
+    Helper function to list the capabilities. (from the persisted file)"""
+    # persist obj: load
+    capabilities_arg: str = load_file(FILE_PATH)
+    
+    if not capabilities_arg:
+        capabilities_obj = authz.RPCCapabilities()
+    else:
+        capabilities_obj = unstructure_rev(capabilities_arg)
+    
+    return capabilities_obj
+
+
+# clear_rpc_capabilities()
+# print(f"{list_rpc_capabilities()=}")
+# add_str = "['id.rpc1', 'id2.rpc2', 'id3.rpc3', 'id4.rpc4']"
+# print(f"{add_rpc_capabilities(add_str)=}")
+# print(f"{list_rpc_capabilities()=}")
+
+
+
+
+
+# Function to print the table
+def print_authz_list_capabilities():
+    """
+    Print out the dict-like capabilities info into a table.
+    EXAMPLE:
+    resource        |       para_constraints
+    ------------------------------
+    id2.method2     |       {}              
+    id3.method3     |       {}   
+    
+    """
+    # get the cap instance
+    vctl_authz_list_cap = list_rpc_capabilities()
+    if not vctl_authz_list_cap._rpc_dict:
+        return "There is no capabilites defined."
+    # Define a list of dictionaries, simulating DataFrame rows
+    resources = [res for res in vctl_authz_list_cap._rpc_dict.keys()]
+    para_constraints = [para_con for para_con in vctl_authz_list_cap._rpc_dict.values()]
+    data = [{'resource': res, 'para_constraints': con} for res, con in zip(resources, para_constraints)]
+    # Headers are the keys from the first dictionary (assuming all dicts have the same keys)
+    headers = data[0].keys() if data else []
+    
+    # Find the maximum width for each column
+    column_widths = {}
+    for header in headers:
+        column_widths[header] = max(len(str(row[header])) for row in data)
+        column_widths[header] = max(column_widths[header], len(header))
+    
+    # Create the header row
+    header_row = "\t|\t".join(header.ljust(column_widths[header]) for header in headers)
+    print(header_row)
+    print('-' * len(header_row))
+    
+    # Print the data rows
+    for row in data:
+        print("\t|\t".join(str(row[header]).ljust(column_widths[header]) for header in headers))
