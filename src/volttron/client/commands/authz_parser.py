@@ -1,4 +1,5 @@
 import argparse
+import argcomplete
 import volttron.types.auth.authz_types as authz
 
 
@@ -98,7 +99,7 @@ def add_authz_parser(add_parser_fn, filterable):
                             timeout in seconds for remote calls (default: 60)
     --address ADDR        URL to bind for VIP connections
 
-    rpc Capability:
+    authz operations:
     
         add                 Add rpc method authorization
         remove              Remove rpc method authorization
@@ -111,60 +112,73 @@ def add_authz_parser(add_parser_fn, filterable):
     authz_commands = add_parser_fn("authz",
                                    help="Manage authorization for rpc methods and pubsub topics")
 
-    rpc_parser = authz_commands.add_subparsers(title="rpc Capability", metavar="", dest="store_commands")
+    rpc_parser = authz_commands.add_subparsers(title="authz operations", metavar="", dest="store_commands")
 
+    # Create the 'add' subparser under 'rpc'
+    add_authz_method = rpc_parser.add_parser("add", help="Add rpc method authorization")
+    # add_authz_method.add_argument("identity_and_method", nargs="*", help="Format: 'identity.method_name'")
+    # add_authz_method.set_defaults(func=handel_role_parser)
+    
+    #### Create subparser for node ('role', 'group', 'protected-topic', 'agent') under 'authz add'
+    add_node_parser = add_authz_method.add_subparsers(title="top nodes", metavar="", dest="store_commands")
 
-    ### ADD parser
-    add_authz_method = add_parser_fn("add",
-                                     subparser=rpc_parser,
-                                     help="Add rpc method authorization")
-    # add_authz_method.add_argument(
-    #     "identity_and_method",
-    #     nargs="*",
-    #     help="Add rpc authorization to an agent.  Format is 'identity.method_name'")
-    # add_authz_method.set_defaults(func=add_rpc_authorization)
+    # Add a command "role" under 'authz add'
+    add_role_command  = add_node_parser.add_parser("role", help="add role")
+    add_role_command.add_argument("--pubsub-capabilities", "-pscaps",nargs="*", help="add role pubsub-capabilities")  # TODO: confirm behavior
+    add_role_command.add_argument("--rpc-capabilities", "-rpccap", nargs="*", help="add role rpc-capabilities")
+    
+    # Add a command "group" under 'authz add'
+    add_group_command  = add_node_parser.add_parser("group", help="add group")
+    add_group_command.add_argument("--pubsub-capabilities", "-pscaps",nargs="*", help="add group pubsub-capabilities")  # TODO: confirm behavior
+    add_group_command.add_argument("--rpc-capabilities", "-rpccap", nargs="*", help="add group rpc-capabilities")
     
     
-    # # Create subparser for 'capabilities' under 'add'
-    # capabilities_parser = add_authz_method.add_subparsers(title="capabilities", metavar="", dest="capability_command")
-
-    # # Add a command under 'capabilities'
-    # add_capabilities_command = capabilities_parser.add_parser("capabilities", help="Add capabilities to authorization")
-    # add_capabilities_command.set_defaults(func=dummy_func)
-    # add_capabilities_command.add_argument("details", nargs="*", help="Details for the capabilities")
-    
-    add_authz_method.add_argument("identity_and_method", nargs="*", help="Format: 'identity.method_name', 'identity2.method_name2'")  # TODO: confirm behavior
-    add_authz_method.add_argument("--capabilities", "-cap", nargs="*", help="Specify capabilities to add")
-    
-    # Set the default function to handle the command
-    add_authz_method.set_defaults(func=handel_authz_add_args)
-
-
+   
     ### REMOVE parser
     remove_authz_method = add_parser_fn(
         "remove",
         subparser=rpc_parser,
         help="Remove rpc method authorization")
-    remove_authz_method.add_argument(
-        "identity_and_method",
-        nargs="*",
-        help="Format: 'identity.method_name', 'identity2.method_name2'")
-    remove_authz_method.add_argument("--capabilities", "-cap", nargs="*", help="Specify capabilities to remove")
-    remove_authz_method.set_defaults(func=handel_authz_remove_args)
+    
+    #### Create subparser for node ('role', 'group', 'protected-topic', 'agent') under 'authz remove'
+    remove_node_parser = remove_authz_method.add_subparsers(title="top nodes", metavar="", dest="store_commands")
+
+    # Add a command "role" under 'authz remove'
+    remove_role_command  = remove_node_parser.add_parser("role", help="add role")
+    remove_role_command.add_argument("--pubsub-capabilities", "-pscaps",nargs="*", help="remove role pubsub-capabilities")  # TODO: confirm behavior
+    remove_role_command.add_argument("--rpc-capabilities", "-rpccap", nargs="*", help="remove role rpc-capabilities")
+    
+    # Add a command "group" under 'authz remove'
+    remove_group_command  = remove_node_parser.add_parser("group", help="add group")
+    remove_group_command.add_argument("--pubsub-capabilities", "-pscaps",nargs="*", help="remove group pubsub-capabilities")  # TODO: confirm behavior
+    remove_group_command.add_argument("--rpc-capabilities", "-rpccap", nargs="*", help="remove group rpc-capabilities")
 
     ### LIST parser
     list_authz_method = add_parser_fn("list",
                                       subparser=rpc_parser,
                                       help="List authorized rpc methods.")
-    list_authz_method.add_argument("--capabilities", "-cap", action="store_true", help="List capabilities")
-    list_authz_method.set_defaults(func=handel_authz_list_args)
+    # list_authz_method.add_argument("--capabilities", "-cap", action="store_true", help="List capabilities")
+    # list_authz_method.set_defaults(func=handel_authz_list_args)
     
     ### CLEAR parser
     clear_authz_method = add_parser_fn("clear",
                                       subparser=rpc_parser,
                                       help="Clear authorized rpc methods.")
-    clear_authz_method.add_argument("--capabilities", "-cap", action="store_true", help="Clear capabilities")
-    clear_authz_method.set_defaults(func=handel_authz_clear_args)
+    # clear_authz_method.add_argument("--capabilities", "-cap", action="store_true", help="Clear capabilities")
+    # clear_authz_method.set_defaults(func=handel_authz_clear_args)
+    
+    
+    
+   
+    # # auto complete
+    # argcomplete.autocomplete(authz_commands)
+    # argcomplete.autocomplete(add_authz_method)
+    # argcomplete.autocomplete(remove_authz_method)
+    # argcomplete.autocomplete(list_authz_method)
+    # argcomplete.autocomplete(clear_authz_method)
+    
+def handel_role_parser(opts):
+    return f"handel_role_parser, {opts=}"
 
 
 def dummy_func(opts):
