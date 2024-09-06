@@ -1,5 +1,7 @@
 import argparse
+import json
 import re
+from typing import List
 
 import argcomplete
 import volttron.types.auth.authz_types as authz
@@ -151,7 +153,7 @@ def add_authz_parser(add_parser_fn, filterable):
     add_role_command.add_argument(
         "--rpc-capabilities", "-rpc", nargs="+", help="add role --rpc-capabilities"
     )
-    add_role_command.set_defaults(func=print_args)
+    add_role_command.set_defaults(func=add_role)
 
     # Add a command "group" under 'authz add'
     add_group_command = add_node_parser.add_parser("group", help="add group")
@@ -277,6 +279,7 @@ def add_authz_parser(add_parser_fn, filterable):
     list_authz_method = add_parser_fn(
         "list", subparser=rpc_parser, help="List authorized rpc methods."
     )
+    list_authz_method.set_defaults(func=list_dummy)
     # list_authz_method.add_argument("--capabilities", "-cap", action="store_true", help="List capabilities")
     # list_authz_method.set_defaults(func=handel_authz_list_args)
 
@@ -284,6 +287,7 @@ def add_authz_parser(add_parser_fn, filterable):
     clear_authz_method = add_parser_fn(
         "clear", subparser=rpc_parser, help="Clear authorized rpc methods."
     )
+    clear_authz_method.set_defaults(func=clear_dummy)
     # clear_authz_method.add_argument("--capabilities", "-cap", action="store_true", help="Clear capabilities")
     # clear_authz_method.set_defaults(func=handel_authz_clear_args)
 
@@ -358,3 +362,35 @@ def matches_wildcard(text, pattern):
     regex_pattern = re.escape(pattern).replace("\\*", ".*")
     # Match the pattern from start to end of the string
     return re.fullmatch(regex_pattern, text) is not None
+
+
+FILE_NAME = "/home/kefei/.volttron_modular/auth_dummy.json"
+
+
+def list_dummy(opts):
+    with open(FILE_NAME, "r") as f:
+        data = json.load(f)
+    return data
+
+
+def clear_dummy(opts):
+    print(f"Your cleared the data at {FILE_NAME}")
+    with open(FILE_NAME, "w") as f:
+        json.dump({}, f, indent=4)
+
+
+def add_role(opts):
+    from volttron.services.control.control_service import ControlService
+
+    rpc_method: function = ControlService.add_role  # "add_role"
+    # role_name: str = opts.role_name
+    # rpc_capabilities_attr: List[str] = opts.rpc_capabilities
+    # pubsub_capabilities_attr: list[str] = opts.pubsub_capabilities
+
+    return opts.connection.call(
+        rpc_method.__name__,
+        role_name=opts.role_name,
+        rpc_capabilities_attr=opts.rpc_capabilities,
+        pubsub_capabilities_attr=opts.pubsub_capabilities,
+    )
+    # return opts

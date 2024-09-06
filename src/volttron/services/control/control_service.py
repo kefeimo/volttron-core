@@ -24,20 +24,19 @@
 
 import base64
 import hashlib
+import json
 import logging.config
 import os
-from pathlib import Path
 import shutil
 import sys
 import tempfile
 from datetime import timedelta
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import gevent
 import gevent.event
-
-from volttron.utils import set_agent_identity
-
+import volttron.types.auth.authz_types as authz
 from volttron.client.known_identities import CONTROL
 from volttron.client.messaging.health import STATUS_BAD, Status
 from volttron.client.vip.agent import RPC, Agent, Core
@@ -45,14 +44,14 @@ from volttron.client.vip.agent.subsystems.query import Query
 from volttron.server.aip import AIPplatform
 from volttron.server.decorators import service
 from volttron.server.server_options import ServerOptions
-from volttron.types import Service
+from volttron.types import Identity, Service
+from volttron.types.agent_context import AgentInstallOptions
+from volttron.types.auth import Credentials
+from volttron.types.auth.authz_types import unstructure_authz_map
 from volttron.types.service_interface import ServiceInterface
 from volttron.utils import ClientContext as cc
-from volttron.utils import get_aware_utc_now, jsonapi
+from volttron.utils import get_aware_utc_now, jsonapi, set_agent_identity
 from volttron.utils.scheduling import periodic
-from volttron.types.auth import Credentials
-from volttron.types.agent_context import AgentInstallOptions
-from volttron.types import Identity
 
 # noinspection PyUnresolvedReferences
 # TODO: Fix requests issues
@@ -73,7 +72,9 @@ from volttron.types import Identity
 _stdout = sys.stdout
 _stderr = sys.stderr
 
-_log = logging.getLogger(os.path.basename(sys.argv[0]) if __name__ == "__main__" else __name__)
+_log = logging.getLogger(
+    os.path.basename(sys.argv[0]) if __name__ == "__main__" else __name__
+)
 
 _log.setLevel(logging.DEBUG)
 message_bus = cc.get_messagebus()
@@ -84,7 +85,6 @@ CHUNK_SIZE = 4096
 
 @service
 class ControlService(Agent):
-
     class Meta:
         identity = CONTROL
 
@@ -124,7 +124,9 @@ class ControlService(Agent):
 
     @Core.receiver("onstart")
     def onstart(self, sender, **kwargs):
-        _log.debug(" agent monitor frequency is... {}".format(self.agent_monitor_frequency))
+        _log.debug(
+            " agent monitor frequency is... {}".format(self.agent_monitor_frequency)
+        )
         self.core.schedule(periodic(self.agent_monitor_frequency), self._monitor_agents)
 
     def _monitor_agents(self):
@@ -135,7 +137,7 @@ class ControlService(Agent):
         """
         # Get status for agents that have been started at least once.
         stats = self._aip.status_agents()
-        for (uid, name, (pid, stat), identity) in stats:
+        for uid, name, (pid, stat), identity in stats:
             if stat:
                 # stat=0 means stopped and stat=None means running
                 # will always have pid(current/crashed/stopped)
@@ -143,8 +145,10 @@ class ControlService(Agent):
                 if attempt < 5:
                     self.crashed_agents[uid] = attempt
                     next_restart = get_aware_utc_now() + timedelta(minutes=attempt * 5)
-                    _log.debug("{} stopped unexpectedly. Will attempt to "
-                               "restart at {}".format(name, next_restart))
+                    _log.debug(
+                        "{} stopped unexpectedly. Will attempt to "
+                        "restart at {}".format(name, next_restart)
+                    )
                     self.core.schedule(next_restart, self._restart_agent, uid, name)
                 else:
                     self.send_alert(uid, name)
@@ -175,8 +179,11 @@ class ControlService(Agent):
     def send_alert(self, agent_id, agent_name):
         """Send an alert for the group, summarizing missing topics."""
         alert_key = "Agent {}({}) stopped unexpectedly".format(agent_name, agent_id)
-        context = ("Agent {}({}) stopped unexpectedly. Attempts to "
-                   "restart failed".format(agent_name, agent_id))
+        context = (
+            "Agent {}({}) stopped unexpectedly. Attempts to " "restart failed".format(
+                agent_name, agent_id
+            )
+        )
         status = Status.build(STATUS_BAD, context=context)
         self.vip.health.send_alert(alert_key, status)
 
@@ -202,24 +209,33 @@ class ControlService(Agent):
     def agent_status(self, uuid):
         if not isinstance(uuid, str):
             identity = bytes(self.vip.rpc.context.vip_message.peer).decode("utf-8")
-            raise TypeError("expected a string for 'uuid';"
-                            "got {!r} from identity: {}".format(type(uuid).__name__, identity))
+            raise TypeError(
+                "expected a string for 'uuid';" "got {!r} from identity: {}".format(
+                    type(uuid).__name__, identity
+                )
+            )
         return self._aip.agent_status(uuid)
 
     @RPC.export
     def agent_name(self, uuid):
         if not isinstance(uuid, str):
             identity = bytes(self.vip.rpc.context.vip_message.peer).decode("utf-8")
-            raise TypeError("expected a string for 'uuid';"
-                            "got {!r} from identity: {}".format(type(uuid).__name__, identity))
+            raise TypeError(
+                "expected a string for 'uuid';" "got {!r} from identity: {}".format(
+                    type(uuid).__name__, identity
+                )
+            )
         return self._aip.agent_name(uuid)
 
     @RPC.export
     def agent_version(self, uuid):
         if not isinstance(uuid, str):
             identity = bytes(self.vip.rpc.context.vip_message.peer).decode("utf-8")
-            raise TypeError("expected a string for 'uuid';"
-                            "got {!r} from identity: {}".format(type(uuid).__name__, identity))
+            raise TypeError(
+                "expected a string for 'uuid';" "got {!r} from identity: {}".format(
+                    type(uuid).__name__, identity
+                )
+            )
         return self._aip.agent_version(uuid)
 
     @RPC.export
@@ -232,22 +248,30 @@ class ControlService(Agent):
 
     @RPC.export
     def status_agents(self, get_agent_user=False):
+        print(f"=====I am called 3")
+        # return ("uuid", "name", "stat", "identity")
         return self._aip.status_agents(get_agent_user)
 
     @RPC.export
     def start_agent(self, uuid):
         if not isinstance(uuid, str):
             identity = bytes(self.vip.rpc.context.vip_message.peer).decode("utf-8")
-            raise TypeError("expected a string for 'uuid';"
-                            "got {!r} from identity: {}".format(type(uuid).__name__, identity))
+            raise TypeError(
+                "expected a string for 'uuid';" "got {!r} from identity: {}".format(
+                    type(uuid).__name__, identity
+                )
+            )
         self._aip.start_agent(uuid)
 
     @RPC.export
     def stop_agent(self, uuid):
         if not isinstance(uuid, str):
             identity = bytes(self.vip.rpc.context.vip_message.peer).decode("utf-8")
-            raise TypeError("expected a string for 'uuid';"
-                            "got {!r} from identity: {}".format(type(uuid).__name__, identity))
+            raise TypeError(
+                "expected a string for 'uuid';" "got {!r} from identity: {}".format(
+                    type(uuid).__name__, identity
+                )
+            )
 
         identity = self.agent_vip_identity(uuid)
         self._aip.stop_agent(uuid)
@@ -273,35 +297,48 @@ class ControlService(Agent):
 
     @RPC.export
     def list_agents(self):
+        _log.info("=======def list_agents(self):")
         _log.info("CONTROL RPC list_agents")
         tag = self._aip.agent_tag
         priority = self._aip.agent_priority
-        return [{
-            "name": name,
-            "uuid": uuid,
-            "tag": tag(uuid),
-            "priority": priority(uuid),
-            "identity": self.agent_vip_identity(uuid),
-        } for uuid, name in self._aip.list_agents().items()]
+        return [
+            {
+                "name": name,
+                "uuid": uuid,
+                "tag": tag(uuid),
+                "priority": priority(uuid),
+                "identity": self.agent_vip_identity(uuid),
+            }
+            for uuid, name in self._aip.list_agents().items()
+        ]
 
     @RPC.export
     def tag_agent(self, uuid, tag):
         if not isinstance(uuid, str):
             identity = bytes(self.vip.rpc.context.vip_message.peer).decode("utf-8")
-            raise TypeError("expected a string for 'uuid';"
-                            "got {!r} from identity: {}".format(type(uuid).__name__, identity))
+            raise TypeError(
+                "expected a string for 'uuid';" "got {!r} from identity: {}".format(
+                    type(uuid).__name__, identity
+                )
+            )
         if not isinstance(tag, (type(None), str)):
             identity = bytes(self.vip.rpc.context.vip_message.peer).decode("utf-8")
-            raise TypeError("expected a string for 'tag';"
-                            "got {!r} from identity: {}".format(type(uuid).__name__, identity))
+            raise TypeError(
+                "expected a string for 'tag';" "got {!r} from identity: {}".format(
+                    type(uuid).__name__, identity
+                )
+            )
         self._aip.tag_agent(uuid, tag)
 
     @RPC.export
     def remove_agent(self, uuid, remove_auth=True):
         if not isinstance(uuid, str):
             identity = bytes(self.vip.rpc.context.vip_message.peer).decode("utf-8")
-            raise TypeError("expected a string for 'uuid';"
-                            "got {!r} from identity: {}".format(type(uuid).__name__, identity))
+            raise TypeError(
+                "expected a string for 'uuid';" "got {!r} from identity: {}".format(
+                    type(uuid).__name__, identity
+                )
+            )
 
         identity = self.agent_vip_identity(uuid)
         # Because we are using send_vip we should pass frames that have
@@ -317,12 +354,17 @@ class ControlService(Agent):
     def prioritize_agent(self, uuid, priority="50"):
         if not isinstance(uuid, str):
             identity = bytes(self.vip.rpc.context.vip_message.peer).decode("utf-8")
-            raise TypeError("expected a string for 'uuid';"
-                            "got {!r} from identity: {}".format(type(uuid).__name__, identity))
+            raise TypeError(
+                "expected a string for 'uuid';" "got {!r} from identity: {}".format(
+                    type(uuid).__name__, identity
+                )
+            )
         if not isinstance(priority, (type(None), str)):
             identity = bytes(self.vip.rpc.context.vip_message.peer).decode("utf-8")
-            raise TypeError("expected a string or null for 'priority';"
-                            "got {!r} from identity: {}".format(type(uuid).__name__, identity))
+            raise TypeError(
+                "expected a string or null for 'priority';"
+                "got {!r} from identity: {}".format(type(uuid).__name__, identity)
+            )
         self._aip.prioritize_agent(uuid, priority)
 
     @RPC.export
@@ -334,8 +376,11 @@ class ControlService(Agent):
         """
         if not isinstance(uuid, str):
             identity = bytes(self.vip.rpc.context.vip_message.peer).decode("utf-8")
-            raise TypeError("expected a string for 'uuid';"
-                            "got {!r} from identity: {}".format(type(uuid).__name__, identity))
+            raise TypeError(
+                "expected a string for 'uuid';" "got {!r} from identity: {}".format(
+                    type(uuid).__name__, identity
+                )
+            )
         # TODO: Have an accessor wrapper around this.
         return self._aip._uuid_vip_id_map[uuid]
 
@@ -377,14 +422,16 @@ class ControlService(Agent):
     #         fp.write(base64.b64decode(wheel['data']))
 
     @RPC.export
-    def install_agent_from_message_bus(self,
-                                       agent: str,
-                                       topic: str,
-                                       response_topic: str,
-                                       credentials: Credentials,
-                                       force: bool = False,
-                                       pre_release: bool = False,
-                                       agent_config: str = None):
+    def install_agent_from_message_bus(
+        self,
+        agent: str,
+        topic: str,
+        response_topic: str,
+        credentials: Credentials,
+        force: bool = False,
+        pre_release: bool = False,
+        agent_config: str = None,
+    ):
         """
         Install the agent through the rmq message bus.
         """
@@ -404,7 +451,7 @@ class ControlService(Agent):
             protocol_headers = headers
             response_received = True
 
-        #self._raise_error_if_identity_exists_without_force(vip_identity, force)
+        # self._raise_error_if_identity_exists_without_force(vip_identity, force)
         # if not agent.endswith(".whl"):
         #     # agent passed is package name to install from pypi.
         #     return self._aip.install_agent(agent, vip_identity, agent_config, force, pre_release)
@@ -418,25 +465,29 @@ class ControlService(Agent):
             sha512 = hashlib.sha512()
 
             try:
-                request_checksum = base64.b64encode(jsonapi.dumps(
-                    ["checksum"]).encode("utf-8")).decode("utf-8")
+                request_checksum = base64.b64encode(
+                    jsonapi.dumps(["checksum"]).encode("utf-8")
+                ).decode("utf-8")
                 request_fetch = base64.b64encode(
-                    jsonapi.dumps(["fetch",
-                                   protocol_request_size]).encode("utf-8")).decode("utf-8")
+                    jsonapi.dumps(["fetch", protocol_request_size]).encode("utf-8")
+                ).decode("utf-8")
 
                 _log.debug(f"Server subscribing to {topic}")
-                self.vip.pubsub.subscribe(peer="pubsub",
-                                          prefix=topic,
-                                          callback=protocol_subscription).get(timeout=5)
+                self.vip.pubsub.subscribe(
+                    peer="pubsub", prefix=topic, callback=protocol_subscription
+                ).get(timeout=5)
                 gevent.sleep(5)
                 while True:
-
-                    _log.debug(f"Requesting data {request_fetch} sending to "
-                               f"{response_topic}")
+                    _log.debug(
+                        f"Requesting data {request_fetch} sending to "
+                        f"{response_topic}"
+                    )
                     response_received = False
 
                     # request a chunk of the file
-                    self.vip.pubsub.publish("pubsub", topic=response_topic, message=request_fetch)
+                    self.vip.pubsub.publish(
+                        "pubsub", topic=response_topic, message=request_fetch
+                    )
                     gevent.sleep(1)
                     # chunk binary representation of the bytes read from
                     # the other side of the connection
@@ -458,9 +509,9 @@ class ControlService(Agent):
                     with gevent.Timeout(30):
                         _log.debug("Requesting checksum")
                         response_received = False
-                        self.vip.pubsub.publish("pubsub",
-                                                topic=response_topic,
-                                                message=request_checksum).get(timeout=5)
+                        self.vip.pubsub.publish(
+                            "pubsub", topic=response_topic, message=request_checksum
+                        ).get(timeout=5)
 
                         while not response_received:
                             gevent.sleep(0.1)
@@ -478,45 +529,58 @@ class ControlService(Agent):
                 raise
             finally:
                 store.close()
-                self.vip.pubsub.unsubscribe("pubsub", response_topic, protocol_subscription)
+                self.vip.pubsub.unsubscribe(
+                    "pubsub", response_topic, protocol_subscription
+                )
                 _log.debug("Unsubscribing on server")
 
-            agent_uuid = self._aip.install_agent(agent, vip_identity, publickey, secretkey,
-                                                 agent_config, force, pre_release)
+            agent_uuid = self._aip.install_agent(
+                agent,
+                vip_identity,
+                publickey,
+                secretkey,
+                agent_config,
+                force,
+                pre_release,
+            )
             return agent_uuid
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
     @RPC.export
     def install_agent(self, install_options: AgentInstallOptions | dict) -> str:
-
         if isinstance(install_options, dict):
             options = AgentInstallOptions.from_dict(install_options)
         else:
             options = install_options
 
         if not options.source.endswith(".whl"):
-            return self._aip.install_agent(agent=options.source,
-                                           vip_identity=options.identity,
-                                           agent_config=options.agent_config,
-                                           force=options.force,
-                                           pre_release=options.allow_prerelease)
+            return self._aip.install_agent(
+                agent=options.source,
+                vip_identity=options.identity,
+                agent_config=options.agent_config,
+                force=options.force,
+                pre_release=options.allow_prerelease,
+            )
 
         wheelhouse = Path("wheelhouse").absolute()
         wheelhouse.mkdir(exist_ok=True)
         filepath = wheelhouse / options.source
 
-        with open(filepath, 'wb') as fp:
+        with open(filepath, "wb") as fp:
             fp.write(base64.b64decode(options.data))
 
-        return self._aip.install_agent(agent=filepath.as_posix(),
-                                       vip_identity=options.identity,
-                                       agent_config=options.agent_config,
-                                       force=options.force,
-                                       pre_release=options.allow_prerelease)
+        return self._aip.install_agent(
+            agent=filepath.as_posix(),
+            vip_identity=options.identity,
+            agent_config=options.agent_config,
+            force=options.force,
+            pre_release=options.allow_prerelease,
+        )
 
-    def _raise_error_if_identity_exists_without_force(self, vip_identity: str,
-                                                      force: bool) -> Identity:
+    def _raise_error_if_identity_exists_without_force(
+        self, vip_identity: str, force: bool
+    ) -> Identity:
         """
         This will raise a ValueError if the identity passed exists but
         force was not True when this function is called.
@@ -541,3 +605,47 @@ class ControlService(Agent):
         vip identity.  If the identity  doesn't exist then returns None.
         """
         return self._aip._vip_id_uuid_map.get(vip_identity)
+
+    ### authz control
+    @RPC.export
+    def add_role(
+        self,
+        role_name: str,
+        rpc_capabilities_attr: List[str] = None,
+        pubsub_capabilities_attr: List[str] = None,
+    ):
+        authz_dict = self._load_authz()
+        authz_map = authz.VolttronAuthzMap()
+        authz_map.compact_dict = authz_dict
+        rpc_caps = []
+        try:  # TODO: check rpc_cap in "id.rpc1" format
+            for rpc_cap in rpc_capabilities_attr:
+                rpc_caps.append(authz.RPCCapability(rpc_cap))
+        except Exception as e:
+            print(e)
+        pubsub_caps = []
+        try:  # TODO: check pubsub_cap in "devicez/ahu.*:publish" format
+            for pubsub_cap in pubsub_capabilities_attr:
+                pubsub_caps.append(authz.PubsubCapabilities(pubsub_cap))
+        except Exception as e:
+            print(e)
+
+        authz_map.create_or_merge_role(
+            name=role_name,
+            rpc_capabilities=authz.RPCCapabilities(rpc_caps),
+            pubsub_capabilities=authz.PubsubCapabilities(pubsub_caps),
+        )
+        self._dump_authz(authz_map.compact_dict)
+
+    @staticmethod
+    def _load_authz():
+        FILE_NAME = "/home/kefei//.volttron_modular/auth_dummy.json"
+        with open(FILE_NAME, "r") as f:
+            data = json.load(f)
+        return data
+
+    @staticmethod
+    def _dump_authz(authz_compact_dict: dict):
+        FILE_NAME = "/home/kefei//.volttron_modular/auth_dummy.json"
+        with open(FILE_NAME, "w") as f:
+            json.dump(authz_compact_dict, f, indent=4)
