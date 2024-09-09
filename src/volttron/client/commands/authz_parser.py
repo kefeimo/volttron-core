@@ -1,10 +1,12 @@
 import argparse
 import json
 import re
-from typing import List
+from typing import Callable, List
 
 import argcomplete
 import volttron.types.auth.authz_types as authz
+
+RPC_TIME_OUT = 10  # TODO: confirm the workflow for this config
 
 
 def add_rpc_authorization(opts: argparse.Namespace):
@@ -379,18 +381,232 @@ def clear_dummy(opts):
         json.dump({}, f, indent=4)
 
 
+# def add_role(opts):
+#     from volttron.services.control.control_service import ControlService
+
+#     rpc_method: Callable = ControlService.add_role  # "add_role"
+#     # role_name: str = opts.role_name
+#     # rpc_capabilities_attr: List[str] = opts.rpc_capabilities
+#     # pubsub_capabilities_attr: list[str] = opts.pubsub_capabilities
+
+#     msg = opts.connection.call(
+#         rpc_method.__name__,
+#         role_name=opts.role_name,
+#         rpc_capabilities_attr=opts.rpc_capabilities,
+#         pubsub_capabilities_attr=opts.pubsub_capabilities,
+#     )
+#     # return opts
+#     # print(msg)
+#     return msg
+
+
+### authz control
 def add_role(opts):
-    from volttron.services.control.control_service import ControlService
+    role_name: str = opts.role_name
+    rpc_capabilities_attr: List[str] | None = opts.rpc_capabilities
+    pubsub_capabilities_attr: List[str] | None = opts.pubsub_capabilities
 
-    rpc_method: function = ControlService.add_role  # "add_role"
-    # role_name: str = opts.role_name
-    # rpc_capabilities_attr: List[str] = opts.rpc_capabilities
-    # pubsub_capabilities_attr: list[str] = opts.pubsub_capabilities
+    authz_dict = AuthZService._load_authz()
+    authz_map = authz.VolttronAuthzMap()
+    authz_map.compact_dict = authz_dict
+    if rpc_capabilities_attr is None:
+        rpc_capabilities_attr = []
+    if pubsub_capabilities_attr is None:
+        pubsub_capabilities_attr = []
+    rpc_caps = []
+    # check rpc_cap in "id.rpc1" format
+    for rpc_cap in rpc_capabilities_attr:
+        if not AuthZService.is_capability_format_valid(rpc_cap):
+            msg = f"Input rpc-capability '{rpc_cap}' in {rpc_capabilities_attr} does not meet the required format: {AuthZService.capability_format_requirement()}"
+            return msg
+        rpc_caps.append(authz.RPCCapability(rpc_cap))
+    pubsub_caps = []
+    # check pubsub_cap in "devicez/ahu.*:publish" format
+    for pubsub_cap in pubsub_capabilities_attr:
+        if ":" not in pubsub_cap:
+            msg = f"Input pubsub-capability '{pubsub_cap}' in {pubsub_capabilities_attr} does not meet the required format: {AuthZService.topic_pattern_pubsub_constrain_valid_requirement()}"
+            return msg
+        topic_pattern = pubsub_cap.split(":")[0]
+        topic_access = pubsub_cap.split(":")[-1]
+        if not AuthZService.is_topic_pattern_valid(topic_pattern):
+            return f"Input '<{topic_pattern=}>:<pubsub_constraint>' in {pubsub_capabilities_attr} does not meet the required format: {AuthZService.topic_pattern_requirement()}"
+        if not AuthZService.is_pubsub_constrain_valid(topic_access):
+            return f"Input '<topic_pattern>:<{topic_access=}>:' in {pubsub_capabilities_attr} does not meet the required format: {AuthZService.pubsub_constrain_requirement()}"
+        pubsub_caps.append(
+            authz.PubsubCapability(
+                topic_pattern=topic_pattern, topic_access=topic_access
+            )
+        )
 
-    return opts.connection.call(
-        rpc_method.__name__,
-        role_name=opts.role_name,
-        rpc_capabilities_attr=opts.rpc_capabilities,
-        pubsub_capabilities_attr=opts.pubsub_capabilities,
+    authz_map.create_or_merge_role(
+        name=role_name,
+        rpc_capabilities=authz.RPCCapabilities(rpc_caps),
+        pubsub_capabilities=authz.PubsubCapabilities(pubsub_caps),
     )
-    # return opts
+
+    AuthZService._dump_authz(authz_map.compact_dict)
+
+    # # TODO: Link to the correct rpc call in volttron-lib-auth/src/volttron/services/auth/auth_service.py
+    # from volttron.services.auth.auth_service import VolttronAuthService
+
+    # rpc_method: Callable = VolttronAuthService.create_or_merge_role  # "add_role"
+    # return opts.connection.server.vip.rpc.call(
+    #     "platform.auth",
+    #     "create_or_merge_role_1",
+    #     role_name=opts.role_name,
+    #     rpc_capabilities_attr=opts.rpc_capabilities,
+    #     pubsub_capabilities_attr=opts.pubsub_capabilities,
+    # )
+    # return opts.connection.server.vip.rpc.call(
+    #     "platform.auth",
+    #     "create_or_merge_role_1",
+    #     name=role_name,
+    #     rpc_capabilities="authz.RPCCapabilities(rpc_caps)",
+    #     pubsub_capabilities="authz.PubsubCapabilities(pubsub_caps)",
+    # )
+    # res = opts.connection.server.vip.rpc.call(
+    #     "platform.auth", "create_or_merge_role_2", role_name
+    # ).get(RPC_TIME_OUT)
+    # print(f"===={res}")
+
+
+class AuthZService:
+    @staticmethod
+    def _load_authz():
+        FILE_NAME = "/home/kefei//.volttron_modular/auth_dummy.json"
+        with open(FILE_NAME, "r") as f:
+            data = json.load(f)
+        return data
+
+    @staticmethod
+    def _dump_authz(authz_compact_dict: dict):
+        FILE_NAME = "/home/kefei//.volttron_modular/auth_dummy.json"
+        with open(FILE_NAME, "w") as f:
+            json.dump(authz_compact_dict, f, indent=4)
+
+    @staticmethod
+    def is_capability_format_valid(cap_attr: str) -> bool:
+        """
+        Validates that the value follows the 'string.string' format.
+        This function uses regular expression to check the pattern.
+        """
+        pattern = re.compile(r"^\w+\.\w+$")
+        return bool(pattern.match(cap_attr))
+
+    @staticmethod
+    def capability_format_requirement() -> str:
+        return "in 'str-dot-str' format. i.e., 'id1.method1'"
+
+    @staticmethod
+    def is_topic_pattern_valid(topic_patter: str) -> bool:
+        """
+        Check if the provided string matches the specific pattern:
+        Can contain letters, '/', '.', '*', brackets, hyphens, and plus signs.
+
+        Args:
+        s (str): The string to be checked.
+
+        Returns:
+        bool: True if the string matches the format, False otherwise.
+
+        # Examples of usage:
+        test_strings = [
+            "devicez/ahu.*",     # valid: follows specified characters and pattern
+            "devicez/ahu[1-9]+", # valid: includes numbers and regex patterns
+            "devicez/ahu-123*",  # valid: hyphen and asterisk used correctly
+            "devicez/ahu+",      # valid: plus sign used correctly
+            "*/auth.*",          # valid: asterisk used at the beginning and in pattern
+            "invalid_string$",   # invalid: dollar sign is not in the allowed set
+            "devicez/ahu(!)",    # invalid: parentheses are not allowed
+            "devicez|ahu.*",     # invalid: pipe character is not allowed
+            "devicez/ahu[1-9]*", # valid: correct use of brackets and asterisk
+            "devicez/ahu{}",     # invalid: curly brackets are not allowed
+            "hello world"        # invalid: space is not allowed
+        ]
+        """
+        # Regex pattern to match the specified format
+        pattern = r"^[a-zA-Z0-9/\.\*\[\]\-\+]*$"
+
+        # Check if the string matches the pattern
+        if re.match(pattern, topic_patter):
+            return True
+        else:
+            return False
+
+    @staticmethod
+    def topic_pattern_requirement() -> str:
+        example_usage = r"""
+        test_strings = [
+            "devicez/ahu.*",     # valid: follows specified characters and pattern
+            "devicez/ahu[1-9]+", # valid: includes numbers and regex patterns
+            "devicez/ahu-123*",  # valid: hyphen and asterisk used correctly
+            "devicez/ahu+",      # valid: plus sign used correctly
+            "*/auth.*",          # valid: asterisk used at the beginning and in pattern
+            "invalid_string$",   # invalid: dollar sign is not in the allowed set
+            "devicez/ahu(!)",    # invalid: parentheses are not allowed
+            "devicez|ahu.*",     # invalid: pipe character is not allowed
+            "devicez/ahu[1-9]*", # valid: correct use of brackets and asterisk
+            "devicez/ahu{}",     # invalid: curly brackets are not allowed
+            "hello world"        # invalid: space is not allowed
+        ]"""
+        # return f"Can contain letters, '/', '.', '*', brackets, hyphens, and plus signs. {example_usage=}"
+        return bytes(
+            f"Can contain letters, '/', '.', '*', brackets, hyphens, and plus signs. {example_usage=}",
+            "utf-8",
+        ).decode("unicode_escape")  # Manually interpreting escape sequences
+
+    @staticmethod
+    def is_pubsub_constrain_valid(pubsub_constrain: str) -> bool:
+        """
+        Validates pubsub_constrain
+        """
+        # return pubsub_constrain in ["publish", "subscribe", "pub", "sub", "pubsub"]
+        return pubsub_constrain in ["publish", "subscribe", "pubsub"]
+
+    @staticmethod
+    def pubsub_constrain_requirement() -> str:
+        return 'topic_access in ["publish", "subscribe", "pub", "sub", "pubsub"]'
+
+    @classmethod
+    def is_topic_pattern_pubsub_constrain_valid(cls, input_string: str) -> bool:
+        """
+        Checks if the input string follows the format '<topic_pattern>:<pubsub_constraint>'
+
+        Args:
+        input_string (str): The input string to validate.
+
+        Returns:
+        bool: True if the input string is valid, False otherwise.
+        """
+        # Split the input string by the colon
+        parts = input_string.split(":")
+
+        # Ensure there are exactly two parts
+        if len(parts) != 2:
+            return False
+
+        # Validate each part
+        topic_pattern, pubsub_constrain = parts
+        return cls.is_topic_pattern_valid(
+            topic_pattern
+        ) and cls.is_pubsub_constrain_valid(pubsub_constrain)
+
+    @staticmethod
+    def topic_pattern_pubsub_constrain_valid_requirement() -> str:
+        example_usage = r"""
+        [
+            "devicez/ahu.*:publish",         # valid
+            "*/auth.*:pubsub",               # valid
+            "devicez/ahu(!):publish",        # invalid: topic pattern invalid
+            "devicez|ahu.*:fly",             # invalid: pubsub constraint invalid
+            "devicez/ahu[1-9]*:subscribe"    # valid
+        ]"""
+        print(
+            "The input string needs to follow the format '<topic_pattern>:<pubsub_constraint>'."
+        )
+        # print(example_usage)
+        # return f"The input string needs to follow the format '<topic_pattern>:<pubsub_constraint>'. {example_usage=}"
+        return bytes(
+            f"The input string needs to follow the format '<topic_pattern>:<pubsub_constraint>'. {example_usage=}",
+            "utf-8",
+        ).decode("unicode_escape")  # Manually interpreting escape sequences
