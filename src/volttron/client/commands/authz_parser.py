@@ -1,10 +1,12 @@
 import argparse
 import json
 import re
+import shutil
 from typing import Callable, List
 
 import argcomplete
 import volttron.types.auth.authz_types as authz
+from volttron.services.auth.auth_service import AUTH, VolttronAuthService
 
 RPC_TIME_OUT = 10  # TODO: confirm the workflow for this config
 
@@ -117,6 +119,7 @@ def add_authz_parser(add_parser_fn, filterable):
         remove              Remove rpc method authorization
         list                List authorized rpc methods.
         clear               Clear authorized rpc methods.
+        init                Dummy method to init auth.json
     """
 
     # TODO: Verify that the filterable makes sense for the authz command.
@@ -293,6 +296,12 @@ def add_authz_parser(add_parser_fn, filterable):
     # clear_authz_method.add_argument("--capabilities", "-cap", action="store_true", help="Clear capabilities")
     # clear_authz_method.set_defaults(func=handel_authz_clear_args)
 
+    ### INIT parser
+    init_authz_method = add_parser_fn(
+        "init", subparser=rpc_parser, help="Dummy method to init auth.json"
+    )
+    init_authz_method.set_defaults(func=init_dummy)
+
     # # auto complete
     # argcomplete.autocomplete(authz_commands)
     # argcomplete.autocomplete(add_authz_method)
@@ -366,19 +375,33 @@ def matches_wildcard(text, pattern):
     return re.fullmatch(regex_pattern, text) is not None
 
 
-FILE_NAME = "/home/kefei/.volttron_modular/auth_dummy.json"
+JSON_DUMMY = "/home/kefei/.volttron_modular/authz_dummy.json"
+FILE_NAME = "/home/kefei/.volttron_modular/authz.json"
+INIT_COPY = "/home/kefei/.volttron_modular/authz_copy.json"
 
 
 def list_dummy(opts):
     with open(FILE_NAME, "r") as f:
-        data = json.load(f)
+        data = f.read()
     return data
 
 
 def clear_dummy(opts):
-    print(f"Your cleared the data at {FILE_NAME}")
-    with open(FILE_NAME, "w") as f:
+    print(f"Your cleared the data at {JSON_DUMMY}")
+    with open(JSON_DUMMY, "w") as f:
         json.dump({}, f, indent=4)
+
+
+def init_dummy(opts):
+    print(f"Init auth.json file at {FILE_NAME}")
+    src_path = INIT_COPY
+    dest_path = FILE_NAME
+    try:
+        # Copy the file from src_path to dest_path
+        shutil.copy(src_path, dest_path)
+        print(f"File copied successfully from {src_path} to {dest_path}")
+    except Exception as e:
+        print(f"Error occurred while copying file: {e}")
 
 
 # def add_role(opts):
@@ -406,7 +429,8 @@ def add_role(opts):
     rpc_capabilities_attr: List[str] | None = opts.rpc_capabilities
     pubsub_capabilities_attr: List[str] | None = opts.pubsub_capabilities
 
-    authz_dict = AuthZService._load_authz()
+    # authz_dict = AuthZService._load_authz(JSON_DUMMY)
+    authz_dict = {}
     authz_map = authz.VolttronAuthzMap()
     authz_map.compact_dict = authz_dict
     if rpc_capabilities_attr is None:
@@ -444,12 +468,12 @@ def add_role(opts):
         pubsub_capabilities=authz.PubsubCapabilities(pubsub_caps),
     )
 
-    AuthZService._dump_authz(authz_map.compact_dict)
+    # AuthZService._dump_authz(authz_map.compact_dict, JSON_DUMMY)
 
-    # # TODO: Link to the correct rpc call in volttron-lib-auth/src/volttron/services/auth/auth_service.py
+    # Note: rpc call in volttron-lib-auth/src/volttron/services/auth/auth_service.py
     # from volttron.services.auth.auth_service import VolttronAuthService
 
-    # rpc_method: Callable = VolttronAuthService.create_or_merge_role  # "add_role"
+    rpc_method: Callable = VolttronAuthService.create_or_merge_role  # "add_role"
     # return opts.connection.server.vip.rpc.call(
     #     "platform.auth",
     #     "create_or_merge_role_1",
@@ -464,25 +488,84 @@ def add_role(opts):
     #     rpc_capabilities="authz.RPCCapabilities(rpc_caps)",
     #     pubsub_capabilities="authz.PubsubCapabilities(pubsub_caps)",
     # )
+
+    # caps = authz.PubsubCapabilities()
+    # caps.add_pubsub_capability(
+    #     authz.PubsubCapability(
+    #         topic_pattern="test_topic/subtopic", topic_access="publish"
+    #     )
+    # )
+    # caps.add_pubsub_capability(
+    #     authz.PubsubCapability(
+    #         topic_pattern="test_topic_2/subtopic2", topic_access="pubsub"
+    #     )
+    # )
+
+    # pubsub_capabilities = authz.PubsubCapabilities(
+    #     [
+    #         authz.PubsubCapability(
+    #             topic_pattern="test_topic/subtopic", topic_access="publish"
+    #         ),
+    #         # authz.PubsubCapability(
+    #         #     topic_pattern="test_topic_2/subtopic2", topic_access="pubsub"
+    #         # ),
+    #     ]
+    # )
+    # rpc_capabilities = authz.RPCCapabilities(
+    #     [
+    #         authz.RPCCapability(resource="vip1.method1"),
+    #         # authz.RPCCapability(resource="vip2.method2"),
+    #     ]
+    # )
+
+    pubsub_capabilities = authz.PubsubCapabilities(pubsub_caps)
+    rpc_capabilities = authz.RPCCapabilities(rpc_caps)
+
+    res = opts.connection.server.vip.rpc.call(
+        AUTH,  # "platform.auth",
+        rpc_method.__name__,  # "create_or_merge_role",
+        name=role_name,
+        pubsub_capabilities=pubsub_capabilities,
+        rpc_capabilities=rpc_capabilities,
+    ).get(RPC_TIME_OUT)
+
     # res = opts.connection.server.vip.rpc.call(
-    #     "platform.auth", "create_or_merge_role_2", role_name
+    #     "platform.auth",
+    #     "create_or_merge_agent_authz",
+    #     identity=role_name,
+    #     pubsub_capabilities=pubsub_capabilities,
+    #     rpc_capabilities=rpc_capabilities,
     # ).get(RPC_TIME_OUT)
-    # print(f"===={res}")
+
+    print(f"===={res}")
 
 
 class AuthZService:
     @staticmethod
-    def _load_authz():
-        FILE_NAME = "/home/kefei//.volttron_modular/auth_dummy.json"
-        with open(FILE_NAME, "r") as f:
+    def _load_authz(file_name=None):
+        if not file_name:
+            file_name = JSON_DUMMY
+        with open(file_name, "r") as f:
             data = json.load(f)
         return data
 
     @staticmethod
-    def _dump_authz(authz_compact_dict: dict):
-        FILE_NAME = "/home/kefei//.volttron_modular/auth_dummy.json"
-        with open(FILE_NAME, "w") as f:
+    def _dump_authz(authz_compact_dict: dict, file_name: str = JSON_DUMMY):
+        with open(file_name, "w") as f:
             json.dump(authz_compact_dict, f, indent=4)
+
+    @staticmethod
+    def _copy_file(src_path=None, dest_path=None):
+        if src_path is None:
+            src_path = INIT_COPY
+        if dest_path is None:
+            dest_path = FILE_NAME
+        try:
+            # Copy the file from src_path to dest_path
+            shutil.copy(src_path, dest_path)
+            print(f"File copied successfully from {src_path} to {dest_path}")
+        except Exception as e:
+            print(f"Error occurred while copying file: {e}")
 
     @staticmethod
     def is_capability_format_valid(cap_attr: str) -> bool:
@@ -501,7 +584,7 @@ class AuthZService:
     def is_topic_pattern_valid(topic_patter: str) -> bool:
         """
         Check if the provided string matches the specific pattern:
-        Can contain letters, '/', '.', '*', brackets, hyphens, and plus signs.
+        Can contain letters, '/', '.', '*', brackets, hyphens, undercore, and plus signs.
 
         Args:
         s (str): The string to be checked.
@@ -525,7 +608,7 @@ class AuthZService:
         ]
         """
         # Regex pattern to match the specified format
-        pattern = r"^[a-zA-Z0-9/\.\*\[\]\-\+]*$"
+        pattern = r"^[a-zA-Z0-9/\.\*\[\]\-\+\_]*$"
 
         # Check if the string matches the pattern
         if re.match(pattern, topic_patter):
@@ -565,7 +648,7 @@ class AuthZService:
 
     @staticmethod
     def pubsub_constrain_requirement() -> str:
-        return 'topic_access in ["publish", "subscribe", "pub", "sub", "pubsub"]'
+        return 'topic_access in ["publish", "subscribe", "pubsub"]'
 
     @classmethod
     def is_topic_pattern_pubsub_constrain_valid(cls, input_string: str) -> bool:
