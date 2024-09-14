@@ -6,6 +6,8 @@ from typing import Callable, List
 
 import argcomplete
 import volttron.types.auth.authz_types as authz
+
+# Note: rpc call in volttron-lib-auth/src/volttron/services/auth/auth_service.py
 from volttron.services.auth.auth_service import AUTH, VolttronAuthService
 
 RPC_TIME_OUT = 10  # TODO: confirm the workflow for this config
@@ -158,7 +160,7 @@ def add_authz_parser(add_parser_fn, filterable):
     add_role_command.add_argument(
         "--rpc-capabilities", "-rpc", nargs="+", help="add role --rpc-capabilities"
     )
-    add_role_command.set_defaults(func=add_role)
+    add_role_command.set_defaults(func=authz_add_role)
 
     # Add a command "group" under 'authz add'
     add_group_command = add_node_parser.add_parser("group", help="add group")
@@ -193,7 +195,10 @@ def add_authz_parser(add_parser_fn, filterable):
         "vip_id", help="add agent <vip_id>"
     )  # "+" means one or more inputs are required,
     add_agent_command.add_argument(
-        "--roles", "-rs", nargs="+", help="add agent --roles"
+        "--role_names", "-rns", nargs="+", help="add agent --roles"
+    )
+    add_agent_command.add_argument(
+        "--topic_names", "-tns", nargs="+", help="add agent --topic_names"
     )
     add_agent_command.add_argument(
         "--pubsub-capabilities",
@@ -205,7 +210,7 @@ def add_authz_parser(add_parser_fn, filterable):
         "--rpc-capabilities", "-rpc", nargs="+", help="add agent --rpc-capabilities"
     )
     add_agent_command.add_argument("--comments", "-c", help="add agent --comments")
-    add_agent_command.set_defaults(func=print_args)
+    add_agent_command.set_defaults(func=authz_add_agent)
 
     ### REMOVE parser
     remove_authz_method = add_parser_fn(
@@ -223,13 +228,7 @@ def add_authz_parser(add_parser_fn, filterable):
     # Add a command "role" under 'authz remove'
     remove_role_command = remove_node_parser.add_parser("role", help="remove role")
     remove_role_command.add_argument("role_name", help="remove role")
-    remove_role_command.add_argument(
-        "--pubsub-capabilities", "-ps", nargs="+", help="add role --pubsub-capabilities"
-    )  # TODO: confirm behavior
-    remove_role_command.add_argument(
-        "--rpc-capabilities", "-rpc", nargs="+", help="add role --rpc-capabilities"
-    )
-    remove_role_command.set_defaults(func=print_args)
+    remove_role_command.set_defaults(func=authz_remove_role)
 
     # Add a command "group" under 'authz remove'
     remove_group_command = remove_node_parser.add_parser("group", help="remove group")
@@ -263,22 +262,7 @@ def add_authz_parser(add_parser_fn, filterable):
     remove_agent_command.add_argument(
         "vip_id", help="add agent <vip_id>"
     )  # "+" means one or more inputs are required,
-    remove_agent_command.add_argument(
-        "--roles", "-rs", nargs="+", help="remove agent --roles"
-    )
-    remove_agent_command.add_argument(
-        "--pubsub-capabilities",
-        "-ps",
-        nargs="+",
-        help="remove agent --pubsub-capabilities",
-    )  # TODO: confirm behavior
-    remove_agent_command.add_argument(
-        "--rpc-capabilities", "-rpc", nargs="+", help="remove agent --rpc-capabilities"
-    )
-    remove_agent_command.add_argument(
-        "--comments", "-c", help="remove agent --comments"
-    )
-    remove_agent_command.set_defaults(func=print_args)
+    remove_agent_command.set_defaults(func=authz_remove_agent)
 
     ### LIST parser
     list_authz_method = add_parser_fn(
@@ -424,7 +408,7 @@ def init_dummy(opts):
 
 
 ### authz control
-def add_role(opts):
+def authz_add_role(opts):
     role_name: str = opts.role_name
     rpc_capabilities_attr: List[str] | None = opts.rpc_capabilities
     pubsub_capabilities_attr: List[str] | None = opts.pubsub_capabilities
@@ -471,53 +455,7 @@ def add_role(opts):
     # AuthZService._dump_authz(authz_map.compact_dict, JSON_DUMMY)
 
     # Note: rpc call in volttron-lib-auth/src/volttron/services/auth/auth_service.py
-    # from volttron.services.auth.auth_service import VolttronAuthService
-
-    rpc_method: Callable = VolttronAuthService.create_or_merge_role  # "add_role"
-    # return opts.connection.server.vip.rpc.call(
-    #     "platform.auth",
-    #     "create_or_merge_role_1",
-    #     role_name=opts.role_name,
-    #     rpc_capabilities_attr=opts.rpc_capabilities,
-    #     pubsub_capabilities_attr=opts.pubsub_capabilities,
-    # )
-    # return opts.connection.server.vip.rpc.call(
-    #     "platform.auth",
-    #     "create_or_merge_role_1",
-    #     name=role_name,
-    #     rpc_capabilities="authz.RPCCapabilities(rpc_caps)",
-    #     pubsub_capabilities="authz.PubsubCapabilities(pubsub_caps)",
-    # )
-
-    # caps = authz.PubsubCapabilities()
-    # caps.add_pubsub_capability(
-    #     authz.PubsubCapability(
-    #         topic_pattern="test_topic/subtopic", topic_access="publish"
-    #     )
-    # )
-    # caps.add_pubsub_capability(
-    #     authz.PubsubCapability(
-    #         topic_pattern="test_topic_2/subtopic2", topic_access="pubsub"
-    #     )
-    # )
-
-    # pubsub_capabilities = authz.PubsubCapabilities(
-    #     [
-    #         authz.PubsubCapability(
-    #             topic_pattern="test_topic/subtopic", topic_access="publish"
-    #         ),
-    #         # authz.PubsubCapability(
-    #         #     topic_pattern="test_topic_2/subtopic2", topic_access="pubsub"
-    #         # ),
-    #     ]
-    # )
-    # rpc_capabilities = authz.RPCCapabilities(
-    #     [
-    #         authz.RPCCapability(resource="vip1.method1"),
-    #         # authz.RPCCapability(resource="vip2.method2"),
-    #     ]
-    # )
-
+    rpc_method: Callable = VolttronAuthService.create_or_merge_role
     pubsub_capabilities = authz.PubsubCapabilities(pubsub_caps)
     rpc_capabilities = authz.RPCCapabilities(rpc_caps)
 
@@ -527,17 +465,117 @@ def add_role(opts):
         name=role_name,
         pubsub_capabilities=pubsub_capabilities,
         rpc_capabilities=rpc_capabilities,
-    ).get(RPC_TIME_OUT)
+    ).get()
+    if res:
+        print(
+            f"Added Role: {rpc_capabilities_attr=}, {pubsub_capabilities_attr=} to {role_name=}."
+        )
 
-    # res = opts.connection.server.vip.rpc.call(
-    #     "platform.auth",
-    #     "create_or_merge_agent_authz",
-    #     identity=role_name,
-    #     pubsub_capabilities=pubsub_capabilities,
-    #     rpc_capabilities=rpc_capabilities,
-    # ).get(RPC_TIME_OUT)
 
-    print(f"===={res}")
+def authz_remove_role(opts):
+    role_name: str = opts.role_name
+
+    # Note: rpc call in volttron-lib-auth/src/volttron/services/auth/auth_service.py
+    rpc_method: Callable = VolttronAuthService.remove_role
+    # pubsub_capabilities = authz.PubsubCapabilities(pubsub_caps)
+    # rpc_capabilities = authz.RPCCapabilities(rpc_caps)
+
+    res = opts.connection.server.vip.rpc.call(
+        AUTH,  # "platform.auth",
+        rpc_method.__name__,  # "create_or_merge_role",
+        name=role_name,
+    ).get()
+    if res:
+        print(f"Removed Role: {role_name=}.")
+
+
+def authz_add_agent(opts):
+    vip_id: str = opts.vip_id
+    role_names: List[str] | None = opts.role_names
+    topic_names: List[str] | None = opts.topic_names
+    rpc_capabilities_attr: List[str] | None = opts.rpc_capabilities
+    pubsub_capabilities_attr: List[str] | None = opts.pubsub_capabilities
+    comments: str | None = opts.comments
+
+    # authz_dict = AuthZService._load_authz(JSON_DUMMY)
+    authz_dict = {}
+    authz_map = authz.VolttronAuthzMap()
+    authz_map.compact_dict = authz_dict
+    if rpc_capabilities_attr is None:
+        rpc_capabilities_attr = []
+    if pubsub_capabilities_attr is None:
+        pubsub_capabilities_attr = []
+    rpc_caps = []
+    # check rpc_cap in "id.rpc1" format
+    for rpc_cap in rpc_capabilities_attr:
+        if not AuthZService.is_capability_format_valid(rpc_cap):
+            msg = f"Input rpc-capability '{rpc_cap}' in {rpc_capabilities_attr} does not meet the required format: {AuthZService.capability_format_requirement()}"
+            return msg
+        rpc_caps.append(authz.RPCCapability(rpc_cap))
+    pubsub_caps = []
+    # check pubsub_cap in "devicez/ahu.*:publish" format
+    for pubsub_cap in pubsub_capabilities_attr:
+        if ":" not in pubsub_cap:
+            msg = f"Input pubsub-capability '{pubsub_cap}' in {pubsub_capabilities_attr} does not meet the required format: {AuthZService.topic_pattern_pubsub_constrain_valid_requirement()}"
+            return msg
+        topic_pattern = pubsub_cap.split(":")[0]
+        topic_access = pubsub_cap.split(":")[-1]
+        if not AuthZService.is_topic_pattern_valid(topic_pattern):
+            return f"Input '<{topic_pattern=}>:<pubsub_constraint>' in {pubsub_capabilities_attr} does not meet the required format: {AuthZService.topic_pattern_requirement()}"
+        if not AuthZService.is_pubsub_constrain_valid(topic_access):
+            return f"Input '<topic_pattern>:<{topic_access=}>:' in {pubsub_capabilities_attr} does not meet the required format: {AuthZService.pubsub_constrain_requirement()}"
+        pubsub_caps.append(
+            authz.PubsubCapability(
+                topic_pattern=topic_pattern, topic_access=topic_access
+            )
+        )
+    if topic_names is None:
+        topic_names = []
+    protected_rpcs: List[authz.vipid_dot_rpc_method] = []
+    for topic_name in topic_names:
+        if not AuthZService.is_topic_pattern_valid(topic_name):
+            return f"Input '{topic_name=}' in {topic_names} does not meet the required format: {AuthZService.topic_pattern_requirement()}"
+        protected_rpcs.append(authz.vipid_dot_rpc_method(topic_name))
+
+    rpc_method: Callable = VolttronAuthService.create_or_merge_agent_authz
+    pubsub_capabilities = authz.PubsubCapabilities(pubsub_caps)
+    rpc_capabilities = authz.RPCCapabilities(rpc_caps)
+
+    res = opts.connection.server.vip.rpc.call(
+        AUTH,  # "platform.auth",
+        rpc_method.__name__,  # "create_or_merge_role",
+        identity=vip_id,
+        protected_rpcs=protected_rpcs,
+        roles=authz.AgentRoles(
+            [authz.AgentRole(role_name=role_name) for role_name in role_names]
+        ),
+        pubsub_capabilities=pubsub_capabilities,
+        rpc_capabilities=rpc_capabilities,
+        comments=comments,
+    ).get()
+    if res:
+        print(
+            f"Added Agent: {topic_names=}, {role_names=}, \
+{rpc_capabilities_attr=}, {pubsub_capabilities_attr=}, \
+{comments=} to {vip_id=}."
+        )
+
+
+def authz_remove_agent(opts):
+    identity: str = opts.vip_id
+
+    # Note: rpc call in volttron-lib-auth/src/volttron/services/auth/auth_service.py
+    rpc_method: Callable = VolttronAuthService.remove_agent
+    # pubsub_capabilities = authz.PubsubCapabilities(pubsub_caps)
+    # rpc_capabilities = authz.RPCCapabilities(rpc_caps)
+
+    res = opts.connection.server.vip.rpc.call(
+        AUTH,  # "platform.auth",
+        rpc_method.__name__,  # "create_or_merge_role",
+        identity=identity,
+    ).get()
+    if res:
+        print(f"Removed Agent: {identity=}.")
 
 
 class AuthZService:
