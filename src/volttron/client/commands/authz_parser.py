@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import re
 import shutil
 from typing import Callable, List
@@ -164,12 +165,14 @@ def add_authz_parser(add_parser_fn, filterable):
 
     # Add a command "group" under 'authz add'
     add_group_command = add_node_parser.add_parser("group", help="add group")
-    add_group_command.add_argument("group_name", help="add group <group_name>")
     add_group_command.add_argument(
-        "vip_ids", nargs="+", help="add group <vips[s]>"
+        "group_name", help="add group <group_name> <vips[s]>"
+    )
+    add_group_command.add_argument(
+        "vip_ids", nargs="+", help="add group <group_name> <vips[s]>"
     )  # "+" means one or more inputs are required,
     add_group_command.add_argument(
-        "--roles", "-rs", nargs="+", help="add group --roles <vips[s]>"
+        "--role_names", "-rns", nargs="+", help="add group --role_names <vips[s]>"
     )
     add_group_command.add_argument(
         "--pubsub-capabilities",
@@ -180,14 +183,15 @@ def add_authz_parser(add_parser_fn, filterable):
     add_group_command.add_argument(
         "--rpc-capabilities", "-rpc", nargs="+", help="add group --rpc-capabilities"
     )
-    add_group_command.set_defaults(func=print_args)
+    # TODO: confirm if group has (optional) --topics option (like in agent)
+    add_group_command.set_defaults(func=authz_add_group)
 
-    # Add a command "protected-topics" under 'authz add'
+    # Add a command "topics" under 'authz add'
     add_topic_command = add_node_parser.add_parser("topic", help="add topic")
     add_topic_command.add_argument(
-        "topic_names", nargs="+", help="add group <topics[s]>"
+        "topic_names", nargs="+", help="add topic <topics[s]>"
     )
-    add_topic_command.set_defaults(func=vctl_add_topic_demo)
+    add_topic_command.set_defaults(func=authz_add_topic)
 
     # Add a command "agent" under 'authz add'
     add_agent_command = add_node_parser.add_parser("agent", help="add agent")
@@ -195,7 +199,7 @@ def add_authz_parser(add_parser_fn, filterable):
         "vip_id", help="add agent <vip_id>"
     )  # "+" means one or more inputs are required,
     add_agent_command.add_argument(
-        "--role_names", "-rns", nargs="+", help="add agent --roles"
+        "--role_names", "-rns", nargs="+", help="add agent --role_names"
     )
     add_agent_command.add_argument(
         "--topic_names", "-tns", nargs="+", help="add agent --topic_names"
@@ -233,29 +237,14 @@ def add_authz_parser(add_parser_fn, filterable):
     # Add a command "group" under 'authz remove'
     remove_group_command = remove_node_parser.add_parser("group", help="remove group")
     remove_group_command.add_argument("group_name", help="remove group <group_name>")
-    remove_group_command.add_argument(
-        "vip_ids", nargs="+", help="remove group <vips[s]>"
-    )  # "+" means one or more inputs are required,
-    remove_group_command.add_argument(
-        "--roles", "-rs", nargs="+", help="remove group --roles <vips[s]>"
-    )
-    remove_group_command.add_argument(
-        "--pubsub-capabilities",
-        "-ps",
-        nargs="+",
-        help="remove group --pubsub-capabilities",
-    )  # TODO: confirm behavior
-    remove_group_command.add_argument(
-        "--rpc-capabilities", "-rpc", nargs="+", help="remove group --rpc-capabilities"
-    )
-    remove_group_command.set_defaults(func=print_args)
+    remove_group_command.set_defaults(func=authz_remove_group)
 
     # Add a command "protected-topics" under 'authz remove'
     remove_topic_command = remove_node_parser.add_parser("topic", help="remove topic")
     remove_topic_command.add_argument(
         "topic_names", nargs="+", help="remove group <topics[s]>"
     )
-    remove_topic_command.set_defaults(func=print_args)
+    remove_topic_command.set_defaults(func=authz_remove_topic)
 
     # Add a command "agent" under 'authz remove'
     remove_agent_command = remove_node_parser.add_parser("agent", help="remove agent")
@@ -268,23 +257,41 @@ def add_authz_parser(add_parser_fn, filterable):
     list_authz_method = add_parser_fn(
         "list", subparser=rpc_parser, help="List authorized rpc methods."
     )
-    list_authz_method.set_defaults(func=list_dummy)
-    # list_authz_method.add_argument("--capabilities", "-cap", action="store_true", help="List capabilities")
-    # list_authz_method.set_defaults(func=handel_authz_list_args)
-
-    ### CLEAR parser
-    clear_authz_method = add_parser_fn(
-        "clear", subparser=rpc_parser, help="Clear authorized rpc methods."
+    list_node_parser = list_authz_method.add_subparsers(
+        title="top nodes",
+        metavar="<NODE=role|group|topic|agent>",
+        dest="store_commands",
+        required=False,
     )
-    clear_authz_method.set_defaults(func=clear_dummy)
-    # clear_authz_method.add_argument("--capabilities", "-cap", action="store_true", help="Clear capabilities")
-    # clear_authz_method.set_defaults(func=handel_authz_clear_args)
+    # Add a command "role" under 'authz remove'
+    list_role_command = list_node_parser.add_parser("role", help="list role")
+    # Add a command "group" under 'authz remove'
+    list_group_command = list_node_parser.add_parser("group", help="remove group")
+    # Add a command "protected-topics" under 'authz remove'
+    list_topic_command = list_node_parser.add_parser("topic", help="remove topic")
+    # Add a command "agent" under 'authz remove'
+    list_agent_command = list_node_parser.add_parser("agent", help="remove agent")
+    # list_authz_method.set_defaults(func=list_dummy)
+    list_authz_method.set_defaults(func=authz_list)
 
-    ### INIT parser
-    init_authz_method = add_parser_fn(
-        "init", subparser=rpc_parser, help="Dummy method to init auth.json"
-    )
-    init_authz_method.set_defaults(func=init_dummy)
+    list_role_command.set_defaults(func=authz_list)
+    list_group_command.set_defaults(func=authz_list)
+    list_topic_command.set_defaults(func=authz_list)
+    list_agent_command.set_defaults(func=authz_list)
+
+    # ### CLEAR parser
+    # clear_authz_method = add_parser_fn(
+    #     "clear", subparser=rpc_parser, help="Clear authorized rpc methods."
+    # )
+    # clear_authz_method.set_defaults(func=clear_dummy)
+    # # clear_authz_method.add_argument("--capabilities", "-cap", action="store_true", help="Clear capabilities")
+    # # clear_authz_method.set_defaults(func=handel_authz_clear_args)
+
+    # ### INIT parser
+    # init_authz_method = add_parser_fn(
+    #     "init", subparser=rpc_parser, help="Dummy method to init auth.json"
+    # )
+    # init_authz_method.set_defaults(func=init_dummy)
 
     # # auto complete
     # argcomplete.autocomplete(authz_commands)
@@ -359,52 +366,57 @@ def matches_wildcard(text, pattern):
     return re.fullmatch(regex_pattern, text) is not None
 
 
-JSON_DUMMY = "/home/kefei/.volttron_modular/authz_dummy.json"
-FILE_NAME = "/home/kefei/.volttron_modular/authz.json"
-INIT_COPY = "/home/kefei/.volttron_modular/authz_copy.json"
+# JSON_DUMMY = "/home/kefei/.volttron_modular/authz_dummy.json"
+FILE_NAME = os.environ["VOLTTRON_HOME"] + "/authz.json"
+# INIT_COPY = "/home/kefei/.volttron_modular/authz_copy.json"
 
 
 def list_dummy(opts):
     with open(FILE_NAME, "r") as f:
-        data = f.read()
+        # data = f.read()
+        data = json.load(f)
+    # print(json.dumps(data, indent=4))
+    print(data.keys())
     return data
 
 
-def clear_dummy(opts):
-    print(f"Your cleared the data at {JSON_DUMMY}")
-    with open(JSON_DUMMY, "w") as f:
-        json.dump({}, f, indent=4)
+# def clear_dummy(opts):
+#     print(f"Your cleared the data at {JSON_DUMMY}")
+#     with open(JSON_DUMMY, "w") as f:
+#         json.dump({}, f, indent=4)
 
 
-def init_dummy(opts):
-    print(f"Init auth.json file at {FILE_NAME}")
-    src_path = INIT_COPY
-    dest_path = FILE_NAME
-    try:
-        # Copy the file from src_path to dest_path
-        shutil.copy(src_path, dest_path)
-        print(f"File copied successfully from {src_path} to {dest_path}")
-    except Exception as e:
-        print(f"Error occurred while copying file: {e}")
+# def init_dummy(opts):
+#     print(f"Init auth.json file at {FILE_NAME}")
+#     src_path = INIT_COPY
+#     dest_path = FILE_NAME
+#     try:
+#         # Copy the file from src_path to dest_path
+#         shutil.copy(src_path, dest_path)
+#         print(f"File copied successfully from {src_path} to {dest_path}")
+#     except Exception as e:
+#         print(f"Error occurred while copying file: {e}")
 
 
-# def add_role(opts):
-#     from volttron.services.control.control_service import ControlService
-
-#     rpc_method: Callable = ControlService.add_role  # "add_role"
-#     # role_name: str = opts.role_name
-#     # rpc_capabilities_attr: List[str] = opts.rpc_capabilities
-#     # pubsub_capabilities_attr: list[str] = opts.pubsub_capabilities
-
-#     msg = opts.connection.call(
-#         rpc_method.__name__,
-#         role_name=opts.role_name,
-#         rpc_capabilities_attr=opts.rpc_capabilities,
-#         pubsub_capabilities_attr=opts.pubsub_capabilities,
-#     )
-#     # return opts
-#     # print(msg)
-#     return msg
+def authz_list(opts):
+    with open(FILE_NAME, "r") as f:
+        data = json.load(f)
+    list_content = data
+    # opts.store_commands in ["role", "group", "topic", "agent"]:  #
+    if opts.store_commands == "role":
+        list_content = data.get("roles")
+    elif opts.store_commands == "agent":
+        list_content = data.get("agents")
+    elif opts.store_commands == "group":
+        list_content = data.get("agent_groups")
+    elif opts.store_commands == "topic":
+        list_content = data.get("protected_topics")
+    else:
+        pass
+        # TODO: there should be somehting else
+    # return list_content
+    print(print(json.dumps(list_content, indent=4)))
+    # print(list_content.keys())
 
 
 ### authz control
@@ -413,55 +425,13 @@ def authz_add_role(opts):
     rpc_capabilities_attr: List[str] | None = opts.rpc_capabilities
     pubsub_capabilities_attr: List[str] | None = opts.pubsub_capabilities
 
-    # authz_dict = AuthZService._load_authz(JSON_DUMMY)
-    authz_dict = {}
-    authz_map = authz.VolttronAuthzMap()
-    authz_map.compact_dict = authz_dict
-    if rpc_capabilities_attr is None:
-        rpc_capabilities_attr = []
-    if pubsub_capabilities_attr is None:
-        pubsub_capabilities_attr = []
-    rpc_caps = []
-    # check rpc_cap in "id.rpc1" format
-    for rpc_cap in rpc_capabilities_attr:
-        if not AuthZService.is_capability_format_valid(rpc_cap):
-            msg = f"Input rpc-capability '{rpc_cap}' in {rpc_capabilities_attr} does not meet the required format: {AuthZService.capability_format_requirement()}"
-            return msg
-        rpc_caps.append(authz.RPCCapability(rpc_cap))
-    pubsub_caps = []
-    # check pubsub_cap in "devicez/ahu.*:publish" format
-    for pubsub_cap in pubsub_capabilities_attr:
-        if ":" not in pubsub_cap:
-            msg = f"Input pubsub-capability '{pubsub_cap}' in {pubsub_capabilities_attr} does not meet the required format: {AuthZService.topic_pattern_pubsub_constrain_valid_requirement()}"
-            return msg
-        topic_pattern = pubsub_cap.split(":")[0]
-        topic_access = pubsub_cap.split(":")[-1]
-        if not AuthZService.is_topic_pattern_valid(topic_pattern):
-            return f"Input '<{topic_pattern=}>:<pubsub_constraint>' in {pubsub_capabilities_attr} does not meet the required format: {AuthZService.topic_pattern_requirement()}"
-        if not AuthZService.is_pubsub_constrain_valid(topic_access):
-            return f"Input '<topic_pattern>:<{topic_access=}>:' in {pubsub_capabilities_attr} does not meet the required format: {AuthZService.pubsub_constrain_requirement()}"
-        pubsub_caps.append(
-            authz.PubsubCapability(
-                topic_pattern=topic_pattern, topic_access=topic_access
-            )
-        )
+    rpc_capabilities = AuthZUtils.str_to_RPCCapabilities(rpc_capabilities_attr)
+    pubsub_capabilities = AuthZUtils.str_to_PubsubCapabilities(pubsub_capabilities_attr)
 
-    authz_map.create_or_merge_role(
-        name=role_name,
-        rpc_capabilities=authz.RPCCapabilities(rpc_caps),
-        pubsub_capabilities=authz.PubsubCapabilities(pubsub_caps),
-    )
-
-    # AuthZService._dump_authz(authz_map.compact_dict, JSON_DUMMY)
-
-    # Note: rpc call in volttron-lib-auth/src/volttron/services/auth/auth_service.py
     rpc_method: Callable = VolttronAuthService.create_or_merge_role
-    pubsub_capabilities = authz.PubsubCapabilities(pubsub_caps)
-    rpc_capabilities = authz.RPCCapabilities(rpc_caps)
-
     res = opts.connection.server.vip.rpc.call(
         AUTH,  # "platform.auth",
-        rpc_method.__name__,  # "create_or_merge_role",
+        rpc_method.__name__,
         name=role_name,
         pubsub_capabilities=pubsub_capabilities,
         rpc_capabilities=rpc_capabilities,
@@ -474,15 +444,10 @@ def authz_add_role(opts):
 
 def authz_remove_role(opts):
     role_name: str = opts.role_name
-
-    # Note: rpc call in volttron-lib-auth/src/volttron/services/auth/auth_service.py
     rpc_method: Callable = VolttronAuthService.remove_role
-    # pubsub_capabilities = authz.PubsubCapabilities(pubsub_caps)
-    # rpc_capabilities = authz.RPCCapabilities(rpc_caps)
-
     res = opts.connection.server.vip.rpc.call(
         AUTH,  # "platform.auth",
-        rpc_method.__name__,  # "create_or_merge_role",
+        rpc_method.__name__,
         name=role_name,
     ).get()
     if res:
@@ -497,58 +462,17 @@ def authz_add_agent(opts):
     pubsub_capabilities_attr: List[str] | None = opts.pubsub_capabilities
     comments: str | None = opts.comments
 
-    # authz_dict = AuthZService._load_authz(JSON_DUMMY)
-    authz_dict = {}
-    authz_map = authz.VolttronAuthzMap()
-    authz_map.compact_dict = authz_dict
-    if rpc_capabilities_attr is None:
-        rpc_capabilities_attr = []
-    if pubsub_capabilities_attr is None:
-        pubsub_capabilities_attr = []
-    rpc_caps = []
-    # check rpc_cap in "id.rpc1" format
-    for rpc_cap in rpc_capabilities_attr:
-        if not AuthZService.is_capability_format_valid(rpc_cap):
-            msg = f"Input rpc-capability '{rpc_cap}' in {rpc_capabilities_attr} does not meet the required format: {AuthZService.capability_format_requirement()}"
-            return msg
-        rpc_caps.append(authz.RPCCapability(rpc_cap))
-    pubsub_caps = []
-    # check pubsub_cap in "devicez/ahu.*:publish" format
-    for pubsub_cap in pubsub_capabilities_attr:
-        if ":" not in pubsub_cap:
-            msg = f"Input pubsub-capability '{pubsub_cap}' in {pubsub_capabilities_attr} does not meet the required format: {AuthZService.topic_pattern_pubsub_constrain_valid_requirement()}"
-            return msg
-        topic_pattern = pubsub_cap.split(":")[0]
-        topic_access = pubsub_cap.split(":")[-1]
-        if not AuthZService.is_topic_pattern_valid(topic_pattern):
-            return f"Input '<{topic_pattern=}>:<pubsub_constraint>' in {pubsub_capabilities_attr} does not meet the required format: {AuthZService.topic_pattern_requirement()}"
-        if not AuthZService.is_pubsub_constrain_valid(topic_access):
-            return f"Input '<topic_pattern>:<{topic_access=}>:' in {pubsub_capabilities_attr} does not meet the required format: {AuthZService.pubsub_constrain_requirement()}"
-        pubsub_caps.append(
-            authz.PubsubCapability(
-                topic_pattern=topic_pattern, topic_access=topic_access
-            )
-        )
-    if topic_names is None:
-        topic_names = []
-    protected_rpcs: List[authz.vipid_dot_rpc_method] = []
-    for topic_name in topic_names:
-        if not AuthZService.is_topic_pattern_valid(topic_name):
-            return f"Input '{topic_name=}' in {topic_names} does not meet the required format: {AuthZService.topic_pattern_requirement()}"
-        protected_rpcs.append(authz.vipid_dot_rpc_method(topic_name))
-
+    rpc_capabilities = AuthZUtils.str_to_RPCCapabilities(rpc_capabilities_attr)
+    pubsub_capabilities = AuthZUtils.str_to_PubsubCapabilities(pubsub_capabilities_attr)
+    protected_rpcs = AuthZUtils.str_to_vipid_dot_rpc_method(topic_names)
+    roles = AuthZUtils.str_to_AgentRoles(role_names)
     rpc_method: Callable = VolttronAuthService.create_or_merge_agent_authz
-    pubsub_capabilities = authz.PubsubCapabilities(pubsub_caps)
-    rpc_capabilities = authz.RPCCapabilities(rpc_caps)
-
     res = opts.connection.server.vip.rpc.call(
         AUTH,  # "platform.auth",
-        rpc_method.__name__,  # "create_or_merge_role",
+        rpc_method.__name__,
         identity=vip_id,
         protected_rpcs=protected_rpcs,
-        roles=authz.AgentRoles(
-            [authz.AgentRole(role_name=role_name) for role_name in role_names]
-        ),
+        roles=roles,
         pubsub_capabilities=pubsub_capabilities,
         rpc_capabilities=rpc_capabilities,
         comments=comments,
@@ -563,47 +487,129 @@ def authz_add_agent(opts):
 
 def authz_remove_agent(opts):
     identity: str = opts.vip_id
-
-    # Note: rpc call in volttron-lib-auth/src/volttron/services/auth/auth_service.py
     rpc_method: Callable = VolttronAuthService.remove_agent
-    # pubsub_capabilities = authz.PubsubCapabilities(pubsub_caps)
-    # rpc_capabilities = authz.RPCCapabilities(rpc_caps)
-
+    # TODO: remove_agent is not robust. Often got "volttron.utils.jsonrpc.RemoteError: volttron.types.auth.auth_credentials.IdentityNotFound('role7')" need to figure out why.
     res = opts.connection.server.vip.rpc.call(
         AUTH,  # "platform.auth",
-        rpc_method.__name__,  # "create_or_merge_role",
+        rpc_method.__name__,
         identity=identity,
     ).get()
     if res:
         print(f"Removed Agent: {identity=}.")
 
 
-class AuthZService:
-    @staticmethod
-    def _load_authz(file_name=None):
-        if not file_name:
-            file_name = JSON_DUMMY
-        with open(file_name, "r") as f:
-            data = json.load(f)
-        return data
+def authz_add_topic(opts):
+    topic_names: List[str] = opts.topic_names
+    protected_rpcs = AuthZUtils.str_to_vipid_dot_rpc_method(topic_names)
+    rpc_method: Callable = VolttronAuthService.create_protected_topics
+    res = opts.connection.server.vip.rpc.call(
+        AUTH,  # "platform.auth",
+        rpc_method.__name__,
+        topic_name_patterns=protected_rpcs,
+    ).get()
+    if res:
+        print(f"Added Topic: {topic_names=}.")
 
-    @staticmethod
-    def _dump_authz(authz_compact_dict: dict, file_name: str = JSON_DUMMY):
-        with open(file_name, "w") as f:
-            json.dump(authz_compact_dict, f, indent=4)
 
-    @staticmethod
-    def _copy_file(src_path=None, dest_path=None):
-        if src_path is None:
-            src_path = INIT_COPY
-        if dest_path is None:
-            dest_path = FILE_NAME
-        try:
-            # Copy the file from src_path to dest_path
-            shutil.copy(src_path, dest_path)
-            print(f"File copied successfully from {src_path} to {dest_path}")
-        except Exception as e:
-            print(f"Error occurred while copying file: {e}")
+def authz_remove_topic(opts):
+    topic_names: str = opts.topic_names
+    rpc_method: Callable = VolttronAuthService.remove_protected_topics
+    res = opts.connection.server.vip.rpc.call(
+        AUTH,  # "platform.auth",
+        rpc_method.__name__,  # "create_or_merge_role",
+        topic_name_patterns=topic_names,
+    ).get()
+    if res:
+        print(f"Removed Topic: {topic_names=}.")
+    else:
+        # TODO error with silence if no such topic exists.
+        print(
+            f"SOMEHTING WRONG, probabely, one of such topics {topic_names=} didn't exist."
+        )
+
+
+def authz_add_group(opts):
+    group_name: str = opts.group_name
+    vip_ids: List[str] = opts.vip_ids
+    role_names: List[str] | None = opts.role_names
+    # topic_names: List[str] | None = opts.topic_names
+    rpc_capabilities_attr: List[str] | None = opts.rpc_capabilities
+    pubsub_capabilities_attr: List[str] | None = opts.pubsub_capabilities
+
+    if not any(
+        [role_names, rpc_capabilities_attr, pubsub_capabilities_attr]
+    ):  # TODO: should we handle this here?
+        raise ValueError(
+            "agent group group1 should have non empty capabilities. Please pass non empty values for at least one of the three parameters - agent_roles, rpc_capabilities, pubsub_capabilities"
+        )
+
+    rpc_capabilities = AuthZUtils.str_to_RPCCapabilities(rpc_capabilities_attr)
+    pubsub_capabilities = AuthZUtils.str_to_PubsubCapabilities(pubsub_capabilities_attr)
+    # protected_rpcs = AuthZUtils.str_to_vipid_dot_rpc_method(topic_names)
+    roles = AuthZUtils.str_to_AgentRoles(role_names)
+
+    rpc_method: Callable = VolttronAuthService.create_or_merge_agent_group
+    res = opts.connection.server.vip.rpc.call(
+        AUTH,  # "platform.auth",
+        rpc_method.__name__,
+        name=group_name,
+        identities=vip_ids,
+        # protected_rpcs=protected_rpcs,
+        roles=roles,
+        pubsub_capabilities=pubsub_capabilities,
+        rpc_capabilities=rpc_capabilities,
+    ).get()
+    if res:
+        print(
+            f"Added Group: {role_names=}, \
+{rpc_capabilities_attr=}, {pubsub_capabilities_attr=}, \
+to {group_name=}."
+        )
+
+
+def authz_remove_group(opts):
+    group_name: str = opts.group_name
+    rpc_method: Callable = VolttronAuthService.remove_agent_group
+    res = opts.connection.server.vip.rpc.call(
+        AUTH,  # "platform.auth",
+        rpc_method.__name__,  # "create_or_merge_role",
+        name=group_name,
+    ).get()
+    if res:
+        print(f"Removed Group: {group_name=}.")
+    else:
+        # TODO error with silence if no such topic exists.
+        print(
+            f"SOMEHTING WRONG, probabely, one of such groups {group_name=} didn't exist."
+        )
+
+
+class AuthZUtils:
+    # @staticmethod
+    # def _load_authz(file_name=None):
+    #     if not file_name:
+    #         file_name = JSON_DUMMY
+    #     with open(file_name, "r") as f:
+    #         data = json.load(f)
+    #     return data
+
+    # @staticmethod
+    # def _dump_authz(authz_compact_dict: dict, file_name: str = JSON_DUMMY):
+    #     with open(file_name, "w") as f:
+    #         json.dump(authz_compact_dict, f, indent=4)
+
+    # @staticmethod
+    # def _copy_file(src_path=None, dest_path=None):
+    #     if src_path is None:
+    #         src_path = INIT_COPY
+    #     if dest_path is None:
+    #         dest_path = FILE_NAME
+    #     try:
+    #         # Copy the file from src_path to dest_path
+    #         shutil.copy(src_path, dest_path)
+    #         print(f"File copied successfully from {src_path} to {dest_path}")
+    #     except Exception as e:
+    #         print(f"Error occurred while copying file: {e}")
 
     @staticmethod
     def is_capability_format_valid(cap_attr: str) -> bool:
@@ -731,3 +737,71 @@ class AuthZService:
             f"The input string needs to follow the format '<topic_pattern>:<pubsub_constraint>'. {example_usage=}",
             "utf-8",
         ).decode("unicode_escape")  # Manually interpreting escape sequences
+
+    # TODO: this method (str_to_RPCCapabilities and str_to_xx methods) should be adopted by authz.RPCCapabilities itself.
+    @staticmethod
+    def str_to_RPCCapabilities(
+        rpc_capabilities_attr: List[str] | None,
+    ) -> authz.RPCCapabilities | None:
+        if rpc_capabilities_attr is None:
+            return None
+        # check rpc_cap in "id.rpc1" format
+        rpc_caps: List[authz.RPCCapability] = []
+        for rpc_cap in rpc_capabilities_attr:
+            if not AuthZUtils.is_capability_format_valid(rpc_cap):
+                msg = f"Input rpc-capability '{rpc_cap}' in {rpc_capabilities_attr} does not meet the required format: {AuthZService.capability_format_requirement()}"
+                raise ValueError(msg)
+            rpc_caps.append(authz.RPCCapability(rpc_cap))
+
+        return authz.RPCCapabilities(rpc_caps)
+
+    @staticmethod
+    def str_to_PubsubCapabilities(
+        pubsub_capabilities_attr: List[str] | None,
+    ) -> authz.PubsubCapabilities | None:
+        if pubsub_capabilities_attr is None:
+            return None
+        pubsub_caps = []
+        # check pubsub_cap in "devicez/ahu.*:publish" format
+        for pubsub_cap in pubsub_capabilities_attr:
+            if ":" not in pubsub_cap:
+                msg = f"Input pubsub-capability '{pubsub_cap}' in {pubsub_capabilities_attr} does not meet the required format: {AuthZUtils.topic_pattern_pubsub_constrain_valid_requirement()}"
+                raise ValueError(msg)
+            topic_pattern = pubsub_cap.split(":")[0]
+            topic_access = pubsub_cap.split(":")[-1]
+            if not AuthZUtils.is_topic_pattern_valid(topic_pattern):
+                return f"Input '<{topic_pattern=}>:<pubsub_constraint>' in {pubsub_capabilities_attr} does not meet the required format: {AuthZUtils.topic_pattern_requirement()}"
+            if not AuthZUtils.is_pubsub_constrain_valid(topic_access):
+                raise ValueError(
+                    f"Input '<topic_pattern>:<{topic_access=}>:' in {pubsub_capabilities_attr} does not meet the required format: {AuthZUtils.pubsub_constrain_requirement()}"
+                )
+            pubsub_caps.append(
+                authz.PubsubCapability(
+                    topic_pattern=topic_pattern, topic_access=topic_access
+                )
+            )
+        return authz.PubsubCapabilities(pubsub_caps)
+
+    @staticmethod
+    def str_to_vipid_dot_rpc_method(
+        topic_names: List[str] | None,
+    ) -> List[authz.vipid_dot_rpc_method] | None:
+        if topic_names is None:
+            return None
+        protected_rpcs: List[authz.vipid_dot_rpc_method] = []
+        for topic_name in topic_names:
+            if not AuthZUtils.is_topic_pattern_valid(topic_name):
+                raise ValueError(
+                    f"Input '{topic_name=}' in {topic_names} does not meet the required format: {AuthZUtils.topic_pattern_requirement()}"
+                )
+            protected_rpcs.append(authz.vipid_dot_rpc_method(topic_name))
+        return protected_rpcs
+
+    @staticmethod
+    def str_to_AgentRoles(role_names: List[str] | None) -> authz.AgentRoles | None:
+        if role_names is None:
+            return None
+        roles = authz.AgentRoles(
+            [authz.AgentRole(role_name=role_name) for role_name in role_names]
+        )
+        return roles
