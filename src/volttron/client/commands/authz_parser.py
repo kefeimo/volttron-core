@@ -399,6 +399,7 @@ def list_dummy(opts):
 
 
 def authz_list(opts):
+    """Mock method for now"""
     with open(FILE_NAME, "r") as f:
         data = json.load(f)
     list_content = data
@@ -413,7 +414,6 @@ def authz_list(opts):
         list_content = data.get("protected_topics")
     else:
         pass
-        # TODO: there should be somehting else
     # return list_content
     print(print(json.dumps(list_content, indent=4)))
     # print(list_content.keys())
@@ -430,7 +430,7 @@ def authz_add_role(opts):
 
     rpc_method: Callable = VolttronAuthService.create_or_merge_role
     res = opts.connection.server.vip.rpc.call(
-        AUTH,  # "platform.auth",
+        AUTH,
         rpc_method.__name__,
         name=role_name,
         pubsub_capabilities=pubsub_capabilities,
@@ -446,7 +446,7 @@ def authz_remove_role(opts):
     role_name: str = opts.role_name
     rpc_method: Callable = VolttronAuthService.remove_role
     res = opts.connection.server.vip.rpc.call(
-        AUTH,  # "platform.auth",
+        AUTH,
         rpc_method.__name__,
         name=role_name,
     ).get()
@@ -466,9 +466,10 @@ def authz_add_agent(opts):
     pubsub_capabilities = AuthZUtils.str_to_PubsubCapabilities(pubsub_capabilities_attr)
     protected_rpcs = AuthZUtils.str_to_vipid_dot_rpc_method(topic_names)
     roles = AuthZUtils.str_to_AgentRoles(role_names)
+
     rpc_method: Callable = VolttronAuthService.create_or_merge_agent_authz
     res = opts.connection.server.vip.rpc.call(
-        AUTH,  # "platform.auth",
+        AUTH,
         rpc_method.__name__,
         identity=vip_id,
         protected_rpcs=protected_rpcs,
@@ -490,7 +491,7 @@ def authz_remove_agent(opts):
     rpc_method: Callable = VolttronAuthService.remove_agent
     # TODO: remove_agent is not robust. Often got "volttron.utils.jsonrpc.RemoteError: volttron.types.auth.auth_credentials.IdentityNotFound('role7')" need to figure out why.
     res = opts.connection.server.vip.rpc.call(
-        AUTH,  # "platform.auth",
+        AUTH,
         rpc_method.__name__,
         identity=identity,
     ).get()
@@ -503,7 +504,7 @@ def authz_add_topic(opts):
     protected_rpcs = AuthZUtils.str_to_vipid_dot_rpc_method(topic_names)
     rpc_method: Callable = VolttronAuthService.create_protected_topics
     res = opts.connection.server.vip.rpc.call(
-        AUTH,  # "platform.auth",
+        AUTH,
         rpc_method.__name__,
         topic_name_patterns=protected_rpcs,
     ).get()
@@ -515,8 +516,8 @@ def authz_remove_topic(opts):
     topic_names: str = opts.topic_names
     rpc_method: Callable = VolttronAuthService.remove_protected_topics
     res = opts.connection.server.vip.rpc.call(
-        AUTH,  # "platform.auth",
-        rpc_method.__name__,  # "create_or_merge_role",
+        AUTH,
+        rpc_method.__name__,
         topic_name_patterns=topic_names,
     ).get()
     if res:
@@ -571,8 +572,8 @@ def authz_remove_group(opts):
     group_name: str = opts.group_name
     rpc_method: Callable = VolttronAuthService.remove_agent_group
     res = opts.connection.server.vip.rpc.call(
-        AUTH,  # "platform.auth",
-        rpc_method.__name__,  # "create_or_merge_role",
+        AUTH,
+        rpc_method.__name__,
         name=group_name,
     ).get()
     if res:
